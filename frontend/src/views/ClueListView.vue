@@ -6,6 +6,7 @@
         <p class="sub">线索只存状态机：待核查 → 核查中 → 已确认 / 已排除。分数与命中理由通过 score_id 追溯到评分与明细（视图 v_clue_list）。</p>
       </div>
       <div class="toolbar">
+        <el-select v-model="filters.area_id" aria-label="筛选线索区域" placeholder="全部区域" clearable style="width: 150px" @change="reload"><el-option v-for="a in dicts?.areas || []" :key="a.area_id" :label="a.area_name" :value="a.area_id" /></el-select>
         <el-radio-group v-model="filters.status" @change="reload">
           <el-radio-button value="">全部</el-radio-button>
           <el-radio-button v-for="o in enumOptions('clue_status')" :key="o.value" :value="o.value">{{ o.label }}</el-radio-button>
@@ -46,10 +47,11 @@
 </template>
 
 <script setup>
-import { reactive } from 'vue'
+import { reactive, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '@/api'
 import { enumOptions } from '@/constants/enums'
+import { useDicts } from '@/composables/useDicts'
 import { useAsync } from '@/composables/useAsync'
 import { fixed, hourLabel } from '@/utils/format'
 import AsyncState from '@/components/AsyncState.vue'
@@ -59,10 +61,12 @@ import ClueDrawer from '@/components/ClueDrawer.vue'
 
 const route = useRoute()
 const router = useRouter()
+const dicts = useDicts()
 const filters = reactive({
+  area_id: route.query.area_id || '',
   status: route.query.status !== undefined ? Number(route.query.status) : '',
-  risk_level: '',
-  page: 1,
+  risk_level: route.query.risk_level ? Number(route.query.risk_level) : '',
+  page: Number(route.query.page) || 1,
   size: 20,
 })
 
@@ -74,8 +78,9 @@ function reload() {
 }
 
 // C2 用抽屉打开，同时保留 /clues/:clueId 路由，便于直接分享与从概览页跳入
-const open = (row) => router.push({ name: 'clue-detail', params: { clueId: row.clue_id } })
-const close = () => router.push({ name: 'clues' })
+const open = (row) => router.push({ name: 'clue-detail', params: { clueId: row.clue_id }, query: Object.fromEntries(Object.entries({ area_id: filters.area_id, status: filters.status, risk_level: filters.risk_level, page: filters.page }).filter(([, v]) => v !== '')) })
+const close = () => router.push({ name: 'clues', query: route.query })
+watch(() => route.query, (q) => { filters.area_id = q.area_id || ''; filters.status = q.status !== undefined ? Number(q.status) : ''; filters.risk_level = q.risk_level ? Number(q.risk_level) : ''; filters.page = Number(q.page) || 1; load() })
 </script>
 
 <style scoped>

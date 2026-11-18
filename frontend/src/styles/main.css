@@ -11,7 +11,7 @@
   --missing-bg: #f2f6fc;
   --page-bg: #f5f7fa;
   --card-border: #e4e7ed;
-  --text-muted: #909399;
+  --text-muted: #606976;
 }
 
 * { box-sizing: border-box; }
@@ -24,7 +24,7 @@ html, body, #app {
   background: var(--page-bg);
 }
 
-.page { display: flex; flex-direction: column; gap: 16px; }
+.page { display: flex; flex-direction: column; gap: 20px; }
 
 .page-head {
   display: flex;
@@ -34,11 +34,11 @@ html, body, #app {
   flex-wrap: wrap;
 }
 .page-head h2 { margin: 0; font-size: 20px; font-weight: 600; }
-.page-head .sub { margin: 4px 0 0; color: var(--text-muted); font-size: 13px; }
+.page-head .sub { margin: 4px 0 0; color: var(--text-muted); font-size: 14px; line-height: 1.7; }
 
 .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 
-.card-title { font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.card-title { font-weight: 600; display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; }
 .card-title .hint { font-weight: 400; color: var(--text-muted); font-size: 12px; }
 
 .muted { color: var(--text-muted); }
@@ -81,3 +81,24 @@ html, body, #app {
 
 .link { color: var(--el-color-primary); cursor: pointer; }
 .link:hover { text-decoration: underline; }
+
+/* 信息型后台：稳定的文字层级与可辨认的键盘焦点。 */
+:root { --el-color-primary: #2563eb; --el-color-primary-light-3: #668ff1; --el-color-primary-light-5: #94b2f5; --el-color-primary-light-7: #c0d2fa; --el-color-primary-light-9: #eff6ff; --el-color-primary-dark-2: #1d4ed8; --el-text-color-placeholder: #687586; }
+body { font-size:14px; }
+a { color:#1d4ed8; text-underline-offset:3px; }
+a:hover { text-decoration:underline; }
+:where(button,a,input,textarea,select,[tabindex]):focus-visible { outline:3px solid #2563eb; outline-offset:3px; border-radius:4px; }
+::selection { background:#dbeafe; color:#172554; }
+input,textarea { caret-color:#1d4ed8; }
+.el-card { --el-card-border-radius:12px; }
+.el-card__header { padding:18px 20px; }
+.el-table { font-size:14px; --el-table-header-text-color:#475569; --el-table-header-bg-color:#f8fafc; }
+.el-table .cell { line-height:1.65; }
+.el-table th.el-table__cell { font-weight:600; }
+.el-table td.el-table__cell { padding:12px 0; }
+.el-button + .el-button { margin-left:8px; }
+.el-dialog { max-width:calc(100vw - 24px); }
+.el-drawer__body { overscroll-behavior:contain; }
+.el-main,.el-drawer__body,.heat-scroll { scrollbar-color:#b6c2d0 transparent; scrollbar-width:thin; }
+@media(max-width:600px) { .page-head { align-items:flex-start; }.toolbar { width:100%; }.el-card__body,.el-card__header { padding:16px; }.el-pagination { flex-wrap:wrap; }.stat { padding:14px; }.stat .value { font-size:26px; } }
+@media(prefers-reduced-motion:reduce) { *,*::before,*::after { scroll-behavior:auto!important; transition-duration:.01ms!important; animation-duration:.01ms!important; } }

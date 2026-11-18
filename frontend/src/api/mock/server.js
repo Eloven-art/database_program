@@ -357,7 +357,8 @@ route('POST', '/api/login', (ctx) => {
 // 下拉字典：区域、规则（接口契约中没有，见 README 缺口 #8）
 route('GET', '/api/dicts', () => ok({
   areas: db.area_info.map(({ area_id, area_name, area_type }) => ({ area_id, area_name, area_type })),
-  rules: db.judge_rule.map(({ rule_id, rule_name, version_id, judge_object }) => ({ rule_id, rule_name, version_id, judge_object })),
+  rules: db.judge_rule.map(({ rule_id, rule_name, version_id, judge_object, low_threshold, high_threshold }) => ({ rule_id, rule_name, version_id, judge_object, low_threshold, high_threshold })),
+  features: db.feature_def.map(({ feature_id, feature_name }) => ({ feature_id, feature_name })),
   history_cutoff: historyCutoff(),
 }))
 
@@ -418,6 +419,7 @@ route('GET', '/api/risk-map', (ctx) => {
       if (!cur || s.total_score > cur.total_score) {
         byArea[s.area_id] = {
           area_id: s.area_id,
+          score_id: s.score_id,
           total_score: s.total_score,
           risk_level: s.risk_level,
           risk_level_name: levelName(s.risk_level),

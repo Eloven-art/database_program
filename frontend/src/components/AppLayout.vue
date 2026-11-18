@@ -1,5 +1,5 @@
 <template>
-  <el-container class="layout">
+  <el-container class="layout" :class="{'nav-open': navOpen}">
     <el-aside width="220px" class="aside">
       <div class="brand">
         <div class="brand-title">多风险特征预警系统</div>
@@ -18,8 +18,10 @@
       </el-menu>
     </el-aside>
 
+    <button v-if="navOpen" class="nav-backdrop" aria-label="关闭导航" @click="navOpen=false" />
     <el-container class="right">
       <el-header class="header">
+        <el-button class="nav-toggle" text :aria-expanded="navOpen" aria-label="切换导航" @click="navOpen=!navOpen"><el-icon><Menu /></el-icon></el-button>
         <el-breadcrumb separator="/">
           <el-breadcrumb-item v-if="parentRoute" :to="{ name: parentRoute.name }">{{ parentRoute.meta.title }}</el-breadcrumb-item>
           <el-breadcrumb-item>{{ route.meta.title }}</el-breadcrumb-item>
@@ -30,12 +32,12 @@
           </el-tooltip>
           <el-tag v-else type="success" effect="plain">已连接后端</el-tag>
           <el-dropdown trigger="click" @command="onCommand">
-            <span class="user">
+            <button type="button" class="user" aria-label="用户菜单">
               <el-icon><User /></el-icon>
               {{ auth.user?.real_name }}
               <el-tag v-for="r in auth.roles" :key="r" size="small" class="role-tag">{{ ROLE_LABEL[r] }}</el-tag>
               <el-icon><ArrowDown /></el-icon>
-            </span>
+            </button>
             <template #dropdown>
               <el-dropdown-menu>
                 <el-dropdown-item v-if="API_MODE === 'mock'" command="reset" :icon="RefreshLeft">重置演示数据</el-dropdown-item>
@@ -59,7 +61,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { RefreshLeft, SwitchButton } from '@element-plus/icons-vue'
@@ -69,7 +71,9 @@ import { useAuthStore } from '@/stores/auth'
 import { ROLE_LABEL } from '@/constants/enums'
 import HealthLight from './HealthLight.vue'
 
+const navOpen = ref(false)
 const route = useRoute()
+watch(() => route.fullPath, () => { navOpen.value = false })
 const router = useRouter()
 const auth = useAuthStore()
 
@@ -144,8 +148,20 @@ async function onCommand(cmd) {
 .right { min-width: 0; }
 .header { display: flex; align-items: center; justify-content: space-between; background: #fff; border-bottom: 1px solid var(--card-border); gap: 12px; }
 .header-right { display: flex; align-items: center; gap: 12px; }
-.user { display: flex; align-items: center; gap: 6px; cursor: pointer; outline: none; }
+.user { display: flex; align-items: center; gap: 6px; cursor: pointer; background: transparent; border: 0; font: inherit; color: inherit; padding: 6px; }
 .role-tag { margin-left: 2px; }
 .main { padding: 20px; overflow-y: auto; }
 .footer { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 10px 20px; font-size: 12px; color: var(--text-muted); border-top: 1px solid var(--card-border); background: #fff; flex-wrap: wrap; }
+</style>
+
+<style scoped>
+.nav-toggle { display: none; }.nav-backdrop { display:none; }
+@media(max-width:900px) {
+  .aside { position:fixed; inset:0 auto 0 0; z-index:2100; transform:translateX(-100%); transition:transform .18s ease-out; }
+  .nav-open .aside { transform:translateX(0); }
+  .nav-toggle { display:inline-flex; }.nav-backdrop { display:block; position:fixed; inset:0 0 0 220px; background:rgba(15,23,42,.35); border:0; z-index:2099; }
+  .header { padding:0 12px; }.header-right { gap:6px; margin-left:auto; }.role-tag { display:none; }.main { padding:16px; }.footer { padding:12px 16px; }
+}
+@media(max-width:480px) { .header :deep(.el-breadcrumb) { display:none; }.header-right :deep(.el-tag) { font-size:11px; } }
+@media(prefers-reduced-motion:reduce) { .aside { transition:none; } }
 </style>

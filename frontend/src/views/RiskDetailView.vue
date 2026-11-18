@@ -19,7 +19,7 @@
           <div class="stat">
             <div class="label">总分</div>
             <div class="value">{{ fixed(data.score.total_score) }}</div>
-            <div class="foot">低 &lt;3 · 中 3–6 · 高 ≥6</div>
+            <div class="foot">{{ thresholdLabel }}</div>
           </div>
           <div class="stat">
             <div class="label">风险等级</div>
@@ -57,16 +57,24 @@ import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Back } from '@element-plus/icons-vue'
 import { api } from '@/api'
+import { useDicts } from '@/composables/useDicts'
 import { useAsync } from '@/composables/useAsync'
 import { fixed, objectLabel } from '@/utils/format'
 import AsyncState from '@/components/AsyncState.vue'
 import LevelTag from '@/components/LevelTag.vue'
 import FeatureJudgeTable from '@/components/FeatureJudgeTable.vue'
 
+const dicts = useDicts()
 const route = useRoute()
 const router = useRouter()
 const { data, loading, error, run: load } = useAsync(() => api.scoreFeatures(route.params.scoreId))
 
+const thresholdLabel = computed(() => {
+  const rule = dicts.value?.rules.find((r) => r.rule_id === data.value?.score.rule_id)
+  return rule?.low_threshold != null && rule?.high_threshold != null
+    ? `低 <${rule.low_threshold} · 中 ${rule.low_threshold}–<${rule.high_threshold} · 高 ≥${rule.high_threshold}`
+    : '阈值由所属研判规则确定'
+})
 const hitCnt = computed(() => data.value.features.filter((f) => f.is_hit === 1 && f.is_missing !== 1).length)
 const missingCnt = computed(() => data.value.features.filter((f) => f.is_missing === 1).length)
 </script>

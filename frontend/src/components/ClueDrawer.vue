@@ -1,15 +1,12 @@
 <template>
-  <el-drawer :model-value="!!clueId" size="760px" :title="`线索详情 ${clueId || ''}`" @close="$emit('close')">
+  <el-drawer :model-value="!!clueId" size="min(920px, 100vw)" :title="`线索详情 ${clueId || ''}`" @close="$emit('close')">
     <AsyncState :loading="loading" :error="error" :data="data" @retry="load">
       <template v-if="data">
         <div class="section head">
           <div>
             <div class="obj">{{ objectLabel(data.score) }}</div>
-            <div class="meta muted">
-              来源批次 <span class="mono">{{ data.clue.batch_id }}</span> · 权重版本 <span class="mono">{{ data.clue.version_id }}</span>
-              · 承办人 {{ data.clue.assignee_name || '—' }}
-            </div>
-            <div class="meta muted">生成 {{ data.clue.create_at }} · 关闭 {{ data.clue.close_at || '—' }}</div>
+            <div class="meta muted">承办人 {{ data.clue.assignee_name || '未分配' }}</div>
+            <el-collapse class="source-details"><el-collapse-item title="来源信息" name="source"><dl><dt>来源批次</dt><dd class="mono">{{ data.clue.batch_id }}</dd><dt>权重版本</dt><dd class="mono">{{ data.clue.version_id }}</dd><dt>生成时间</dt><dd>{{ data.clue.create_at }}</dd><dt>关闭时间</dt><dd>{{ data.clue.close_at || '—' }}</dd></dl></el-collapse-item></el-collapse>
           </div>
           <div class="score">
             <div class="num big">{{ fixed(data.score.total_score) }}</div>
@@ -21,6 +18,11 @@
         <el-alert type="info" :closable="false" show-icon
           title="本线索为待核查事项，仅提示风险等级与命中理由，不作定性结论，须经人工复核。" />
 
+        <el-steps :active="data.clue.clue_status >= 2 ? 3 : data.clue.clue_status" finish-status="success" simple class="clue-progress">
+          <el-step title="待核查" /><el-step title="核查中" /><el-step :title="data.clue.clue_status === 3 ? '已排除' : data.clue.clue_status === 2 ? '已确认' : '核查结果'" />
+        </el-steps>
+        <el-tabs v-model="activeTab">
+          <el-tab-pane label="命中依据" name="evidence">
         <div class="section">
           <div class="section-title">
             命中特征
@@ -29,6 +31,8 @@
           <FeatureJudgeTable :features="data.features" :total-score="data.score.total_score" />
         </div>
 
+          </el-tab-pane>
+          <el-tab-pane :label="`核查记录（${data.feedbacks.length}）`" name="records">
         <div class="section">
           <div class="section-title">核查记录</div>
           <el-empty v-if="!data.feedbacks.length" description="尚无核查记录" :image-size="60" />
@@ -46,6 +50,8 @@
             </el-timeline-item>
           </el-timeline>
         </div>
+          </el-tab-pane>
+        </el-tabs>
       </template>
     </AsyncState>
 
@@ -87,6 +93,7 @@ const props = defineProps({ clueId: { type: String, default: null } })
 const emit = defineEmits(['close', 'changed'])
 const auth = useAuthStore()
 
+const activeTab = ref('evidence')
 const data = ref(null)
 const loading = ref(false)
 const error = ref(null)
@@ -105,7 +112,7 @@ async function load() {
     loading.value = false
   }
 }
-watch(() => props.clueId, (id) => { data.value = null; if (id) load() }, { immediate: true })
+watch(() => props.clueId, (id) => { data.value = null; activeTab.value = 'evidence'; if (id) load() }, { immediate: true })
 
 // 只显示合法的流转按钮；没有写权限（如教师）则不显示任何操作
 const canAct = computed(() => auth.can('clue.feedback') && [0, 1].includes(data.value?.clue.clue_status))
@@ -138,6 +145,7 @@ function openFeedback(preset, lock, title) {
 
 async function onSubmitted() {
   await load()
+  activeTab.value = 'records'
   emit('changed')
 }
 </script>
@@ -156,5 +164,10 @@ async function onSubmitted() {
 .mr { margin-right: 6px; }
 .small { font-size: 12px; font-weight: 400; }
 .footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.source-details { margin-top: 12px; max-width: 480px; }
+.source-details dl { display: grid; grid-template-columns: 80px 1fr; gap: 8px; margin: 0; }
+.source-details dt { color: var(--text-muted); }.source-details dd { margin: 0; overflow-wrap: anywhere; }
+.clue-progress { margin: 20px 0; }
+@media(max-width:700px) { .head { flex-direction: column; }.score { flex-wrap: wrap; }.footer { flex-wrap: wrap; }.clue-progress { padding: 12px 8px; } }
 :deep(.el-alert) { margin-bottom: 16px; }
 </style>
