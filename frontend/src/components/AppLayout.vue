@@ -2,14 +2,14 @@
   <el-container class="layout" :class="{'nav-open': navOpen}">
     <el-aside :width="navExpanded ? '220px' : '72px'" class="aside" :class="{ expanded: navExpanded }" @keydown.esc="navOpen=false">
       <div class="brand">
-        <el-tooltip :disabled="navExpanded" content="多风险特征预警系统 · 第6组" placement="right"><router-link to="/" class="brand-link" aria-label="多风险特征预警系统首页"><el-icon :size="26"><Odometer /></el-icon><span v-if="navExpanded">多风险特征预警系统<small>以酒驾为例 · 第6组</small></span></router-link></el-tooltip>
+        <el-tooltip :disabled="navExpanded" content="多风险特征预警系统 · 第6组" placement="right"><router-link to="/" class="brand-link" aria-label="多风险特征预警系统首页"><el-icon :size="24"><Odometer /></el-icon><span v-if="navExpanded">多风险特征预警系统<small>以酒驾为例 · 第6组</small></span></router-link></el-tooltip>
       </div>
       <nav class="rail-menu" aria-label="主导航">
         <div v-for="group in visibleMenu" :key="group.title" class="rail-group" :aria-label="group.title">
           <div v-if="navExpanded" class="group-title">{{ group.title }}</div>
           <el-tooltip v-for="item in group.items" :key="item.path" :content="item.title" :trigger="['hover','focus']" :disabled="navExpanded || navOpen" placement="right">
             <router-link :to="item.path" class="rail-link" :class="{ active: activeMenu===item.path }" :aria-current="activeMenu===item.path ? 'page' : undefined" :aria-label="item.title">
-              <el-icon :size="21"><component :is="item.icon" /></el-icon><span class="rail-label">{{ item.title }}</span><span class="code">{{ item.code }}</span>
+              <el-icon :size="18"><component :is="item.icon" /></el-icon><span class="rail-label">{{ item.title }}</span><span class="code">{{ item.code }}</span>
             </router-link>
           </el-tooltip>
         </div>
@@ -130,13 +130,13 @@ async function onCommand(cmd) {
 
 <style scoped>
 .layout { height:100%; }
-.aside { background:#001529; color:#fff; display:flex; flex-direction:column; overflow-y:auto; flex-shrink:0; }
-.brand { padding:20px 12px; }.brand-link { color:#fff; display:flex; align-items:center; gap:12px; justify-content:center; text-decoration:none; }.brand-link span { font-size:14px; font-weight:600; }.brand-link small { display:block; margin-top:6px; font-size:12px; color:#a8bacb; font-weight:400; }
-.rail-menu { flex:1; padding:0 12px; }.rail-group { padding:10px 0; }.rail-group + .rail-group { border-top:1px solid #244058; }.group-title { font-size:12px; color:#a8bacb; padding:0 12px 8px; }
-.rail-link { display:flex; align-items:center; justify-content:center; min-height:44px; padding:10px; margin:4px 0; gap:10px; color:#c9d5e1; border-radius:10px; text-decoration:none; }.rail-link:hover { background:#14334e; color:#fff; }.rail-link.active { background:#2563eb; color:#fff; }.rail-label,.code { display:none; }.expanded .rail-link { justify-content:flex-start; }.expanded .rail-label,.expanded .code { display:inline; }.code { margin-left:auto; font-size:11px; font-family:Consolas,monospace; color:#b6c8dd; }
-.rail-expand { color:#c9d5e1; min-height:48px; margin:12px; }.rail-expand:hover { color:#fff; background:#14334e; }
-.right { min-width:0; }.header { display:flex; align-items:center; justify-content:space-between; background:#fff; border-bottom:1px solid var(--card-border); gap:12px; }.header-right { display:flex; align-items:center; gap:12px; }.user { display:flex; align-items:center; gap:6px; cursor:pointer; background:transparent; border:0; font:inherit; color:inherit; padding:6px; }.role-tag { margin-left:2px; }
-.main { padding:24px; overflow-y:auto; }.main.canvas-main { padding:0; overflow:auto; }.footer { display:flex; justify-content:space-between; align-items:center; gap:16px; padding:10px 20px; font-size:12px; color:var(--text-muted); border-top:1px solid var(--card-border); background:#fff; flex-wrap:wrap; }
+.aside { background:var(--rail-bg); color:#fff; display:flex; flex-direction:column; overflow-y:auto; flex-shrink:0; }
+.brand { padding:20px 12px; }.brand-link { color:#fff; display:flex; align-items:center; gap:12px; justify-content:center; text-decoration:none; }.brand-link span { font-size:14px; font-weight:600; }.brand-link small { display:block; margin-top:6px; font-size:12px; color:#9da9ae; font-weight:400; }
+.rail-menu { flex:1; padding:0 12px; }.rail-group { padding:10px 0; }.rail-group + .rail-group { border-top:1px solid #394148; }.group-title { font-size:12px; color:#9da9ae; padding:0 12px 8px; }
+.rail-link { display:flex; align-items:center; justify-content:center; min-height:40px; padding:8px; margin:4px 0; gap:10px; color:#b7c0c4; border-radius:8px; text-decoration:none; }.rail-link:hover { background:var(--rail-raised); color:#fff; }.rail-link.active { background:#354048; color:#fff; box-shadow:inset 0 1px 0 #ffffff0d; }.rail-link.active .el-icon { color:#adc0ee; }.rail-label,.code { display:none; }.expanded .rail-link { justify-content:flex-start; }.expanded .rail-label,.expanded .code { display:inline; }.code { margin-left:auto; font-size:11px; font-family:Consolas,monospace; color:#9da9ae; }
+.rail-expand { color:#b7c0c4; min-height:48px; margin:12px; }.rail-expand:hover { color:#fff; background:var(--rail-raised); }
+.right { min-width:0; }.header { height:56px; display:flex; align-items:center; justify-content:space-between; background:#fbfcfa; border-bottom:1px solid var(--card-border); gap:12px; }.header-right { display:flex; align-items:center; gap:12px; }.user { display:flex; align-items:center; gap:6px; cursor:pointer; background:transparent; border:0; font:inherit; color:inherit; padding:6px; }.role-tag { margin-left:2px; }
+.main { padding:24px; overflow-y:auto; }.main.canvas-main { padding:0; overflow:auto; }.footer { display:flex; justify-content:space-between; align-items:center; gap:16px; padding:8px 24px; font-size:12px; color:var(--text-muted); border-top:1px solid var(--card-border); background:#fff; flex-wrap:wrap; }
 .nav-toggle,.nav-backdrop { display:none; }
 @media(max-width:900px) {
   .aside { width:220px!important; position:fixed; inset:0 auto 0 0; z-index:2100; transform:translateX(-100%); transition:transform .18s ease-out; }.nav-open .aside { transform:translateX(0); }.rail-link { justify-content:flex-start; }.rail-label,.code { display:inline; }.rail-expand { display:none; }

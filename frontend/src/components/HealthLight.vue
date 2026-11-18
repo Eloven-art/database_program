@@ -41,10 +41,10 @@ const state = computed(() => {
 
 <style scoped>
 .health { display: inline-flex; align-items: center; gap: 6px; cursor: default; white-space: nowrap; }
-.dot { width: 9px; height: 9px; border-radius: 50%; background: #c0c4cc; }
-.dot.ok { background: #67c23a; box-shadow: 0 0 0 3px rgba(103, 194, 58, 0.2); }
-.dot.bad { background: #f56c6c; box-shadow: 0 0 0 3px rgba(245, 108, 108, 0.2); }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: #c0c4cc; }
+.dot.ok { background: var(--el-color-success); }
+.dot.bad { background: var(--level-high); }
 .row { display: flex; justify-content: space-between; padding: 3px 0; font-size: 13px; }
-.bad { color: #f56c6c; font-weight: 600; }
+.bad { color: var(--level-high); font-weight: 600; }
 .tip { font-size: 12px; margin-top: 6px; }
 </style>

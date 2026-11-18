@@ -19,12 +19,22 @@
             <template #header><div class="card-title">区域 × 时段风险热力 <router-link :to="{name:'risk-map'}">查看风险地图 →</router-link></div></template>
             <AsyncState :loading="risk.loading.value" :error="risk.error.value" :data="risk.data.value" empty-text="当前批次暂无区域时段评分" @retry="loadRisk"><div class="chart-mode" role="group" aria-label="风险图展示方式"><el-tooltip v-for="mode in [{value:'heat',label:'时段热力',icon:'Grid'},{value:'map',label:'区域分布',icon:'MapLocation'}]" :key="mode.value" :content="mode.label"><button class="view-tab" :class="{active:chartMode===mode.value}" :aria-label="mode.label" :aria-pressed="chartMode===mode.value" @click="chartMode=mode.value"><el-icon><component :is="mode.icon" /></el-icon><span v-if="chartMode===mode.value">{{ mode.label }}</span></button></el-tooltip></div><RiskHeatmap v-if="chartMode==='heat'" :rows="risk.data.value || []" :rule="rule" /><BatchRiskMap v-else :rows="risk.data.value || []" /></AsyncState>
           </el-card>
-        <div v-if="auth.canBlock('overview.clues')" class="stat-grid work-stats">
+        <aside v-if="auth.canBlock('overview.clues')" class="hero-aside" aria-label="业务指标与当前图表范围">
+        <div class="stat-grid work-stats">
           <button class="stat action-stat" @click="goClues(0)"><span class="label">待核查</span><span class="value warn">{{ summary.data.value.ov.clue_open }}</span><span class="foot">进入待办列表 →</span></button>
           <button class="stat action-stat" @click="goClues(1)"><span class="label">核查中</span><span class="value">{{ summary.data.value.ov.clue_checking }}</span><span class="foot">继续核查 →</span></button>
           <button class="stat action-stat" @click="router.push({name:'risk',query:{risk_level:3}})"><span class="label">高风险区域时段</span><span class="value high">{{ summary.data.value.regionalHigh }}</span><span class="foot">查看全部批次高风险区域评分 →</span></button>
           <div class="stat"><div class="label">已关闭线索</div><div class="value">{{ summary.data.value.ov.clue_confirmed + summary.data.value.ov.clue_excluded }}</div><div class="foot">已确认 {{ summary.data.value.ov.clue_confirmed }} · 已排除 {{ summary.data.value.ov.clue_excluded }} · 总计 {{ summary.data.value.ov.clue_total }}</div></div>
         </div>
+        <section v-if="batch" class="batch-context">
+          <div class="context-title">选中批次概况 <StatusTag type="run_status" :value="batch.run_status" /></div>
+          <p class="mono">{{ batch.batch_id }}</p>
+          <p v-if="risk.loading.value" class="muted">正在更新评分</p>
+          <p v-else-if="risk.error.value" class="muted">评分暂不可用，请重试图表</p>
+          <dl v-else><div><dt>区域</dt><dd class="num">{{ chartSummary.regions }} <small>个</small></dd></div><div><dt>评分对象</dt><dd class="num">{{ chartSummary.objects }} <small>个</small></dd></div><div><dt>峰值</dt><dd class="num">{{ chartSummary.peak===null ? '—' : fixed(chartSummary.peak) }} <small>分</small></dd></div></dl>
+          <p class="muted context-note">上方业务指标按全部批次累计；此处为选中批次的全部日期类型</p>
+        </section>
+        </aside>
         </div>
           <el-card v-if="auth.canBlock('overview.clues')" shadow="never">
             <template #header><div class="card-title">优先处理 <router-link :to="{name:'clues',query:{status:0}}">全部待核查 →</router-link></div><p class="muted card-sub">待核查、核查中的线索，按风险等级和分数优先排列</p></template>
@@ -71,6 +81,10 @@ const summary = useAsync(async () => {
   return {ov,batches:regional,pending,regionalHigh:highRisk.total}
 })
 const batch = computed(()=>summary.data.value?.batches.find((b)=>b.batch_id===batchId.value))
+const chartSummary = computed(()=>{
+  const rows=risk.data.value || []
+  return {regions:new Set(rows.map((r)=>r.area_id)).size,objects:rows.length,peak:rows.length ? Math.max(...rows.map((r)=>r.total_score)) : null}
+})
 const rule = computed(()=>dicts.value?.rules.find((r)=>r.rule_id===batch.value?.rule_id))
 const entries=computed(()=>[{name:'features',page:'features',title:'特征清单'},{name:'ops',page:'ops',title:'版本与批次'},{name:'cases',page:'cases',title:'历史案件'},{name:'audit',page:'audit',title:'审计日志'},{name:'admin',page:'admin',title:'系统管理'}].filter((e)=>auth.canPage(e.page)))
 function loadRisk(){ return risk.run() }
@@ -78,25 +92,16 @@ function refresh(){ return summary.run() }
 function goClues(status){router.push({name:'clues',query:{status}})}
 </script>
 <style scoped>
-.heading-range { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-left:auto; }.heading-range label { font-size:13px; color:var(--text-muted); }.heading-range .el-select { width:220px; }.chart-mode { display:flex; gap:8px; margin-bottom:20px; }.view-tab { display:flex; align-items:center; justify-content:center; gap:8px; width:44px; min-height:36px; overflow:hidden; background:transparent; border:1px solid #d8e0ea; border-radius:8px; color:#475569; cursor:pointer; transition:width .2s ease-out; white-space:nowrap; }.view-tab.active { width:124px; color:#1d4ed8; background:#eff6ff; border-color:#94b2f5; }
-.scope-bar { display:flex; align-items:center; flex-wrap:wrap; gap:12px 24px; color:var(--text-muted); font-size:13px; margin-bottom:16px; }
-.batch-scope { margin-top:24px; padding:16px; background:#fff; border:1px solid var(--card-border); border-radius:12px; }
-.batch-scope .el-select { width:230px; }
-.hero-workspace { display:grid; grid-template-columns:repeat(12,minmax(0,1fr)); gap:20px; margin-bottom:24px; }.hero-workspace > .el-card { grid-column:span 8; grid-row:span 2; }.hero-workspace > .work-stats { grid-column:span 4; grid-row:span 2; grid-template-columns:repeat(2,minmax(0,1fr)); align-content:stretch; }.hero-workspace > .el-card :deep(.heat-scroll) { min-height:300px; }
-.overview-support { display:flex; gap:20px; flex-wrap:wrap; margin-top:20px; }
-.overview-support > * { flex:1; min-width:min(100%,280px); }
-.work-stats { grid-template-columns:repeat(4,minmax(0,1fr)); }
-.action-stat { text-align:left; font:inherit; cursor:pointer; display:flex; flex-direction:column; }
-.action-stat:hover { border-color:var(--el-color-primary); background:#f8fbff; }
-.warn { color:var(--level-mid); }.high { color:var(--level-high); }
-.card-title { justify-content:space-between; }.card-title a { font-size:13px; font-weight:400; }
-.card-sub { font-size:13px; line-height:1.6; margin:8px 0 0; }
-.todo-list { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:20px; }.todo-row { display:block; padding:16px 0; color:inherit; border-bottom:1px solid var(--card-border); text-decoration:none; }
-.todo-row:first-child { padding-top:0; }.todo-row:last-child { border:0; padding-bottom:0; }
-.todo-row:hover .todo-title { color:var(--el-color-primary); }.todo-title { display:flex; justify-content:space-between; gap:12px; font-weight:600; }
-.todo-meta { display:flex; flex-wrap:wrap; gap:8px; margin:10px 0; font-size:13px; }.todo-row > .mono { font-size:12px; }
-.eval-summary { display:flex; flex-wrap:wrap; gap:16px 28px; }.eval-summary b { margin-left:8px; }
-.entries { display:flex; flex-wrap:wrap; gap:12px; }.entries .el-button { margin:0; }
-@media(max-width:1100px){.hero-workspace{grid-template-columns:minmax(0,1fr)}.hero-workspace > .el-card,.hero-workspace > .work-stats{grid-column:auto;grid-row:auto}.hero-workspace > .work-stats{grid-template-columns:repeat(4,minmax(0,1fr))} }
-@media(max-width:700px){.hero-workspace > .work-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.batch-scope .el-select{width:100%} }
+.heading-range { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-left:auto; }.heading-range label { font-size:12px; color:var(--text-muted); }.heading-range .el-select { width:220px; }
+.chart-mode { display:flex; gap:4px; margin-bottom:20px; padding:4px; width:fit-content; background:var(--surface-raised); border:1px solid var(--card-border); border-radius:10px; }
+.view-tab { display:flex; align-items:center; justify-content:center; gap:8px; width:40px; min-height:32px; background:transparent; border:0; border-radius:6px; color:var(--text-secondary); cursor:pointer; white-space:nowrap; transition:color .16s var(--ease-out),background-color .16s var(--ease-out); }.view-tab.active { width:120px; color:var(--text-primary); background:#fff; box-shadow:0 1px 3px #20282e14; }
+.scope-bar { display:flex; align-items:center; flex-wrap:wrap; gap:8px 24px; color:var(--text-muted); font-size:12px; margin-bottom:20px; padding:12px 0; border-block:1px solid var(--card-border); }
+.hero-workspace { display:grid; grid-template-columns:repeat(12,minmax(0,1fr)); gap:24px; margin-bottom:24px; align-items:start; }.hero-workspace > .el-card { grid-column:span 8; grid-row:span 2; }.hero-aside { grid-column:span 4; grid-row:span 2; display:flex; flex-direction:column; gap:20px; min-width:0; }.work-stats { grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }.work-stats .stat { min-height:144px; padding:20px; }.work-stats .value { font-size:40px; }.work-stats .foot { font-size:12px; }.action-stat { text-align:left; font:inherit; cursor:pointer; display:flex; flex-direction:column; transition:background-color .16s var(--ease-out),border-color .16s var(--ease-out); }.action-stat:hover { background:var(--surface-raised); border-color:#b9c8c1; }.warn { color:var(--text-primary); }.high { color:var(--level-high); }
+.batch-context { padding:4px 4px 0; }.context-title { display:flex; justify-content:space-between; align-items:center; gap:12px; font-size:13px; color:var(--text-secondary); }.batch-context > .mono { font-size:12px; margin:12px 0 20px; color:var(--text-muted); }.batch-context dl { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); margin:0; gap:16px; }.batch-context dt { color:var(--text-muted); font-size:12px; }.batch-context dd { margin:8px 0 0; font-family:var(--font-data); font-size:24px; }.batch-context dd small { font-family:var(--font-ui); color:var(--text-muted); font-size:12px; }.context-note { font-size:12px; line-height:1.8; margin:20px 0 0; padding-top:12px; border-top:1px solid var(--card-border); }
+.overview-support { display:flex; gap:24px; flex-wrap:wrap; margin-top:24px; }.overview-support > * { flex:1; min-width:min(100%,280px); }
+.card-title { justify-content:space-between; }.card-title a { font-size:12px; font-weight:400; }.card-sub { font-size:12px; line-height:1.8; margin:8px 0 0; }
+.todo-list { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:24px; }.todo-row { display:flex; flex-direction:column; gap:12px; padding:0; color:inherit; text-decoration:none; }.todo-row + .todo-row { border-left:1px solid var(--card-border); padding-left:24px; }.todo-row:hover .todo-title { color:var(--accent-ink); }.todo-title { display:flex; flex-direction:column; gap:8px; font-size:14px; font-weight:500; }.todo-title b { font-family:var(--font-data); font-size:24px; font-weight:500; }.todo-meta { display:flex; flex-wrap:wrap; gap:8px; font-size:12px; }.todo-row > .mono { font-size:11px; }
+.eval-summary { display:flex; flex-wrap:wrap; gap:16px 28px; }.eval-summary b { margin-left:8px; font-weight:500; }.entries { display:flex; flex-wrap:wrap; gap:12px; }.entries .el-button { margin:0; }
+@media(max-width:1100px){.hero-workspace{grid-template-columns:minmax(0,1fr)}.hero-workspace > .el-card,.hero-aside{grid-column:auto;grid-row:auto}.work-stats{grid-template-columns:repeat(4,minmax(0,1fr))}.batch-context dl{max-width:480px}.todo-row + .todo-row{border-left:0;padding-left:0} }
+@media(max-width:700px){.work-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.work-stats .stat{padding:16px;min-height:136px}.work-stats .value{font-size:36px}.heading-range{margin:0;width:100%}.heading-range .el-select{flex:1}.scope-bar{gap:8px}.todo-list{grid-template-columns:minmax(0,1fr);gap:20px}.todo-row + .todo-row{padding-top:20px;border-top:1px solid var(--card-border)}}
 </style>

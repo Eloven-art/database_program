@@ -48,7 +48,7 @@ watch(()=>route.query,(q)=>{Object.assign(filters,{batch_id:q.batch_id || '',are
 </script>
 <style scoped>
 .filter-bar{margin-bottom:20px}.batch-filter{width:220px}.short-filter{width:150px}.result-count{margin-left:auto;font-size:13px}
-.clickable-rows :deep(.el-table__row){cursor:pointer}.reasons{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:13px}.reason{color:#475569}
-.row-details{display:flex;flex-wrap:wrap;gap:20px 32px;padding:8px 28px;margin:0;background:#f8fafc}.row-details dt{color:var(--text-muted);font-size:12px}.row-details dd{margin:6px 0 0}.pager{margin-top:20px;justify-content:flex-end;max-width:100%;overflow:auto}
+.clickable-rows :deep(.el-table__row){cursor:pointer}.reasons{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:13px}.reason{color:var(--text-secondary)}
+.row-details{display:flex;flex-wrap:wrap;gap:20px 32px;padding:8px 28px;margin:0;background:var(--surface-raised)}.row-details dt{color:var(--text-muted);font-size:12px}.row-details dd{margin:6px 0 0}.pager{margin-top:20px;justify-content:flex-end;max-width:100%;overflow:auto}
 @media(max-width:600px){.batch-filter,.short-filter{width:100%}.result-count{margin:0}}
 </style>

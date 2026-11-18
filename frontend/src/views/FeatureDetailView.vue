@@ -135,5 +135,5 @@ const chartOption = computed(() => {
 .small { font-size: 12px; line-height: 1.7; }
 .primary { color: var(--el-color-primary); }
 .pos { color: var(--level-high); }
-.neg { color: #529b2e; }
+.neg { color: var(--el-color-success); }
 </style>

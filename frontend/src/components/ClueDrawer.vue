@@ -155,7 +155,7 @@ async function onSubmitted() {
 .obj { font-size: 17px; font-weight: 600; }
 .meta { font-size: 13px; margin-top: 4px; }
 .score { display: flex; align-items: center; gap: 10px; }
-.big { font-size: 30px; font-weight: 600; }
+.big { font-size: 36px; font-family:var(--font-data); font-weight: 500; }
 .fb { display: flex; align-items: center; gap: 10px; }
 .remark { margin: 6px 0; }
 .wrong { font-size: 13px; }
@@ -171,7 +171,7 @@ async function onSubmitted() {
 </style>
 
 <style scoped>
-.clue-workspace { display:grid; grid-template-columns:minmax(0,1fr) 320px; gap:24px; height:calc(100dvh - 125px); }.clue-evidence { overflow-y:auto; min-width:0; padding:0 8px 20px 0; }.clue-summary { width:100%; align-self:start; max-height:100%; overflow-y:auto; background:#f3f6fa; border-radius:12px; padding:20px; }.clue-summary h3 { font-size:16px; margin:0 0 24px; }.clue-summary small { font-size:14px; font-weight:400; }.summary-tags { display:flex; gap:10px; margin:12px 0 24px; }.clue-summary dl { margin:0; }.clue-summary dt { color:var(--text-muted); font-size:12px; margin-top:16px; }.clue-summary dd { margin:6px 0 0; line-height:1.7; overflow-wrap:anywhere; }.clue-summary :deep(.clue-actions) { flex-direction:column; margin-top:20px; }.clue-summary :deep(.clue-actions .el-button) { width:100%; }
+.clue-workspace { display:grid; grid-template-columns:minmax(0,1fr) 320px; gap:24px; height:calc(100dvh - 125px); }.clue-evidence { overflow-y:auto; min-width:0; padding:0 8px 20px 0; }.clue-summary { width:100%; align-self:start; max-height:100%; overflow-y:auto; background:var(--surface-raised); border-radius:12px; padding:20px; }.clue-summary h3 { font-size:16px; margin:0 0 24px; }.clue-summary small { font-size:14px; font-weight:400; }.summary-tags { display:flex; gap:10px; margin:12px 0 24px; }.clue-summary dl { margin:0; }.clue-summary dt { color:var(--text-muted); font-size:12px; margin-top:16px; }.clue-summary dd { margin:6px 0 0; line-height:1.7; overflow-wrap:anywhere; }.clue-summary :deep(.clue-actions) { flex-direction:column; margin-top:20px; }.clue-summary :deep(.clue-actions .el-button) { width:100%; }
 :deep(.el-drawer__footer) { display:none; }
 @media(max-width:1000px) { .clue-workspace { display:flex; flex-direction:column-reverse; height:auto; }.clue-summary { max-height:none; }.clue-summary dl { display:none; }.clue-summary h3 { margin-bottom:12px; }.clue-summary :deep(.clue-actions),.clue-summary > .small { display:none; }.clue-evidence { overflow:visible; padding:0; }.clue-summary .big { font-size:26px; }.summary-tags { margin-bottom:0; }:deep(.el-drawer__footer) { display:block; } }
 </style>

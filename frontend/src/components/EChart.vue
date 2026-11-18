@@ -5,6 +5,8 @@
 <script setup>
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as echarts from 'echarts'
+import { chartTheme } from '@/styles/chart-theme'
+echarts.registerTheme('risk-workbench', chartTheme)
 
 const props = defineProps({
   option: { type: Object, required: true },
@@ -17,7 +19,7 @@ let chart = null
 let ro = null
 
 onMounted(() => {
-  chart = echarts.init(el.value)
+  chart = echarts.init(el.value, 'risk-workbench')
   chart.setOption(props.option)
   chart.on('click', (p) => emit('click', p))
   ro = new ResizeObserver(() => chart?.resize())

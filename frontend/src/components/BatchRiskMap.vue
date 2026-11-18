@@ -11,6 +11,7 @@ import {useRouter} from 'vue-router'
 import {api} from '@/api'
 import {useAsync} from '@/composables/useAsync'
 import {fixed} from '@/utils/format'
+import {chartPalette} from '@/styles/chart-theme'
 import {escapeHtml} from '@/utils/dashboard'
 import AsyncState from './AsyncState.vue'
 import EChart from './EChart.vue'
@@ -28,7 +29,7 @@ const option=computed(()=>{
   const lng=areas.map((a)=>a.lng),lat=areas.map((a)=>a.lat)
   return {tooltip:{formatter:(p)=>`${escapeHtml(p.data.area.area_name)}<br/>${p.data.row?`${fixed(p.data.row.total_score)} 分 · ${p.data.row.risk_level_name}风险`:'本批次无评分'}`},
     grid:{left:28,right:28,top:20,bottom:40},xAxis:{type:'value',show:false,min:Math.min(...lng)-.018,max:Math.max(...lng)+.018},yAxis:{type:'value',show:false,min:Math.min(...lat)-.018,max:Math.max(...lat)+.018},
-    series:[{type:'scatter',symbolSize:26,label:{show:true,position:'bottom',distance:7,formatter:(p)=>p.data.area.area_name,color:'#475569',fontSize:12},labelLayout:{hideOverlap:true},data:areas.map((a)=>{const row=peaks.value.find((r)=>r.area_id===a.area_id);return {value:[a.lng,a.lat],area:a,row,itemStyle:{color:row?({1:'#cbd5e1',2:'#f3d19e',3:'#d03050'})[row.risk_level]:'#e5e7eb'}}})}]}
+    series:[{type:'scatter',symbolSize:22,label:{show:true,position:'bottom',distance:7,formatter:(p)=>p.data.area.area_name,color:chartPalette.muted,fontSize:12},labelLayout:{hideOverlap:true},data:areas.map((a)=>{const row=peaks.value.find((r)=>r.area_id===a.area_id);return {value:[a.lng,a.lat],area:a,row,itemStyle:{color:row?({1:chartPalette.low,2:chartPalette.mid,3:chartPalette.high})[row.risk_level]:chartPalette.blank}}})}]}
 })
 function open(p){if(p.data?.row)router.push({name:'risk-detail',params:{scoreId:p.data.row.score_id}})}
 </script>
