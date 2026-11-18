@@ -83,6 +83,7 @@ export const api = {
   createBatch: (body) => post('/api/batches', body), //                       15
   runBatch: (id) => post(`/api/batches/${id}/run`), //                        16
   confusion: (p) => get('/api/eval/confusion', p), //                         17
+  evalSamples: (p) => get('/api/eval/samples', p),
   labels: () => get('/api/eval/labels'), //                                   18
   audit: (p) => get('/api/audit', p), //                                      19
   users: () => get('/api/users'), //                                          20

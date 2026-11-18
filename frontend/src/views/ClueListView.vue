@@ -6,8 +6,9 @@
         <p class="sub">线索只存状态机：待核查 → 核查中 → 已确认 / 已排除。分数与命中理由通过 score_id 追溯到评分与明细（视图 v_clue_list）。</p>
       </div>
       <div class="toolbar">
+        <el-radio-group v-model="viewMode" aria-label="线索展示方式"><el-radio-button value="list">列表</el-radio-button><el-radio-button value="board">看板</el-radio-button></el-radio-group>
         <el-select v-model="filters.area_id" aria-label="筛选线索区域" placeholder="全部区域" clearable style="width: 150px" @change="reload"><el-option v-for="a in dicts?.areas || []" :key="a.area_id" :label="a.area_name" :value="a.area_id" /></el-select>
-        <el-radio-group v-model="filters.status" @change="reload">
+        <el-radio-group v-if="viewMode==='list'" v-model="filters.status" @change="reload">
           <el-radio-button value="">全部</el-radio-button>
           <el-radio-button v-for="o in enumOptions('clue_status')" :key="o.value" :value="o.value">{{ o.label }}</el-radio-button>
         </el-radio-group>
@@ -17,9 +18,11 @@
       </div>
     </div>
 
+    <p class="muted view-scope" role="status">{{ viewMode==='board' ? '看板按区域、等级筛选，四列展示全部状态；点击卡片处理，不支持拖拽改状态。' : '列表按区域、等级和状态筛选。' }} 当前范围共 {{ data?.total ?? 0 }} 条。</p>
     <el-card shadow="never">
-      <AsyncState :loading="loading" :error="error" :data="data" empty-text="没有符合条件的线索" @retry="load">
-        <el-table v-if="data" :data="data.list" class="clickable-rows" :row-class-name="({ row }) => (row.clue_id === route.params.clueId ? 'current-row' : '')" @row-click="open">
+      <AsyncState :loading="loading" :error="error" :data="data" :empty="viewMode==='board' && data ? false : undefined" empty-text="没有符合条件的线索" @retry="load">
+        <ClueKanban v-if="viewMode==='board' && data" :rows="data.list" @open="open" />
+        <el-table v-if="viewMode==='list' && data" :data="data.list" class="clickable-rows" :row-class-name="({ row }) => (row.clue_id === route.params.clueId ? 'current-row' : '')" @row-click="open">
           <el-table-column label="编号" width="140"><template #default="{ row }"><span class="mono">{{ row.clue_id }}</span></template></el-table-column>
           <el-table-column label="研判对象" min-width="150">
             <template #default="{ row }">
@@ -37,7 +40,7 @@
           <el-table-column label="承办人" prop="assignee_name" width="100" />
           <el-table-column label="生成时间" prop="create_at" width="165" />
         </el-table>
-        <el-pagination v-if="data && data.total > filters.size" class="pager" layout="total, prev, pager, next" :total="data.total"
+        <el-pagination v-if="viewMode==='list' && data && data.total > filters.size" class="pager" layout="total, prev, pager, next" :total="data.total"
           :page-size="filters.size" v-model:current-page="filters.page" @current-change="load" />
       </AsyncState>
     </el-card>
@@ -47,7 +50,7 @@
 </template>
 
 <script setup>
-import { reactive, watch } from 'vue'
+import { reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '@/api'
 import { enumOptions } from '@/constants/enums'
@@ -57,11 +60,14 @@ import { fixed, hourLabel } from '@/utils/format'
 import AsyncState from '@/components/AsyncState.vue'
 import LevelTag from '@/components/LevelTag.vue'
 import StatusTag from '@/components/StatusTag.vue'
+import ClueKanban from '@/components/ClueKanban.vue'
+import { allPages } from '@/utils/dashboard'
 import ClueDrawer from '@/components/ClueDrawer.vue'
 
 const route = useRoute()
 const router = useRouter()
 const dicts = useDicts()
+const viewMode = ref(route.query.view==='board' ? 'board' : 'list')
 const filters = reactive({
   area_id: route.query.area_id || '',
   status: route.query.status !== undefined ? Number(route.query.status) : '',
@@ -70,7 +76,12 @@ const filters = reactive({
   size: 20,
 })
 
-const { data, loading, error, run: load } = useAsync(() => api.clues(filters))
+const { data, loading, error, run: load } = useAsync(async () => {
+  if(viewMode.value==='list') return api.clues({...filters})
+  const rows=await allPages(api.clues,{area_id:filters.area_id,risk_level:filters.risk_level})
+  return {list:rows,total:rows.length}
+})
+watch(viewMode, reload)
 
 function reload() {
   filters.page = 1
@@ -78,12 +89,13 @@ function reload() {
 }
 
 // C2 用抽屉打开，同时保留 /clues/:clueId 路由，便于直接分享与从概览页跳入
-const open = (row) => router.push({ name: 'clue-detail', params: { clueId: row.clue_id }, query: Object.fromEntries(Object.entries({ area_id: filters.area_id, status: filters.status, risk_level: filters.risk_level, page: filters.page }).filter(([, v]) => v !== '')) })
+const open = (row) => router.push({ name: 'clue-detail', params: { clueId: row.clue_id }, query: Object.fromEntries(Object.entries({ area_id: filters.area_id, status: filters.status, risk_level: filters.risk_level, page: filters.page, view: viewMode.value }).filter(([, v]) => v !== '')) })
 const close = () => router.push({ name: 'clues', query: route.query })
-watch(() => route.query, (q) => { filters.area_id = q.area_id || ''; filters.status = q.status !== undefined ? Number(q.status) : ''; filters.risk_level = q.risk_level ? Number(q.risk_level) : ''; filters.page = Number(q.page) || 1; load() })
+watch(() => route.query, (q) => { viewMode.value=q.view==='board'?'board':'list'; filters.area_id = q.area_id || ''; filters.status = q.status !== undefined ? Number(q.status) : ''; filters.risk_level = q.risk_level ? Number(q.risk_level) : ''; filters.page = Number(q.page) || 1; load() })
 </script>
 
 <style scoped>
+.view-scope { font-size:13px; margin:0; line-height:1.7; }
 .clickable-rows :deep(tr) { cursor: pointer; }
 .small { font-size: 12px; }
 .pager { margin-top: 12px; justify-content: flex-end; }

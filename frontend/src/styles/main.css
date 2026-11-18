@@ -102,3 +102,8 @@ input,textarea { caret-color:#1d4ed8; }
 .el-main,.el-drawer__body,.heat-scroll { scrollbar-color:#b6c2d0 transparent; scrollbar-width:thin; }
 @media(max-width:600px) { .page-head { align-items:flex-start; }.toolbar { width:100%; }.el-card__body,.el-card__header { padding:16px; }.el-pagination { flex-wrap:wrap; }.stat { padding:14px; }.stat .value { font-size:26px; } }
 @media(prefers-reduced-motion:reduce) { *,*::before,*::after { scroll-behavior:auto!important; transition-duration:.01ms!important; animation-duration:.01ms!important; } }
+
+/* 页面标题与范围选择形成固定的工作区入口。 */
+.page-head h2 { font-size:26px; line-height:1.3; }
+.page-head .sub { max-width:90ch; }
+@media(max-width:600px) { .page-head h2 { font-size:24px; } }

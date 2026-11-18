@@ -188,20 +188,22 @@ function vCaseHistory() {
   return db.case_info.filter((c) => c.occur_time < cutoff)
 }
 
+// 与旧评估 LEFT JOIN 完全同源：无评分仍保留标签，多批次命中则逐条展开。
+function evaluationRows(batchId) {
+  const scores=db.risk_score.filter((s)=>empty(batchId)||s.batch_id===batchId)
+  return db.eval_label.flatMap((label)=>{
+    const matches=scores.filter((s)=>s.object_type===label.object_type && objectId(s)===label.object_id)
+    return (matches.length ? matches : [null]).map((score)=>{
+      const prediction=score?.is_clue ?? 0
+      const result=label.label===1 ? (prediction===1?'tp':'fn') : (prediction===1?'fp':'tn')
+      return {...label,row_id:`${label.object_type}/${label.object_id}/${score?.score_id ?? 'none'}`,score_id:score?.score_id ?? null,batch_id:score?.batch_id ?? null,total_score:score?.total_score ?? null,prediction,result}
+    })
+  })
+}
+
 function confusion(batchId) {
-  const scores = db.risk_score.filter((s) => empty(batchId) || s.batch_id === batchId)
-  let tp = 0, fp = 0, fn = 0, tn = 0
-  for (const l of db.eval_label) {
-    // 与第八节 SQL 一致：LEFT JOIN risk_score ON object_type + object_id，IFNULL(is_clue, 0)
-    const matched = scores.filter((s) => s.object_type === l.object_type && objectId(s) === l.object_id)
-    const rows = matched.length ? matched.map((s) => s.is_clue) : [0]
-    for (const isClue of rows) {
-      if (l.label === 1 && isClue === 1) tp++
-      else if (l.label === 0 && isClue === 1) fp++
-      else if (l.label === 1) fn++
-      else tn++
-    }
-  }
+  const rows=evaluationRows(batchId)
+  const {tp,fp,fn,tn}=rows.reduce((counts,row)=>{counts[row.result]++;return counts},{tp:0,fp:0,fn:0,tn:0})
   const div = (a, b) => (b === 0 ? null : round(a / b, 4))
   const precision = div(tp, tp + fp)
   const recall = div(tp, tp + fn)
@@ -703,6 +705,17 @@ route('GET', '/api/eval/labels', (ctx) => {
   requireRole(ctx, PAGE_ROLES.eval)
   const names = { 1: '正样本', 2: '干扰样本', 3: '对照样本' }
   return ok([1, 2, 3].map((t) => ({ sample_type: t, name: names[t], cnt: db.eval_label.filter((l) => l.sample_type === t).length })))
+})
+
+// 评估样本明细：与混淆矩阵共用 join，便于逐条复核四格计数。
+route('GET', '/api/eval/samples', (ctx)=>{
+  requireRole(ctx,PAGE_ROLES.eval)
+  const q=ctx.query
+  if(!empty(q.result) && !['tp','fp','fn','tn'].includes(q.result)) bad('评估结果筛选无效')
+  const all=evaluationRows(q.batch_id)
+  const result_counts=all.reduce((counts,row)=>{counts[row.result]++;return counts},{tp:0,fp:0,fn:0,tn:0})
+  const rows=all.filter((r)=>empty(q.result)||r.result===q.result)
+  return ok({...paginate(rows,q),sample_total:db.eval_label.length,joined_total:all.length,result_counts})
 })
 
 // 19. 审计日志（时间按半开区间过滤）

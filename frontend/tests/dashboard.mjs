@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
 import { createServer } from 'vite'
+import { fileURLToPath } from 'node:url'
 import { createSeed } from '../src/api/mock/seed.js'
 import { allPages, byNewest, heatCells, nightHours } from '../src/utils/dashboard.js'
 
-const vite = await createServer({ server: { middlewareMode: true }, appType: 'custom' })
+const vite = await createServer({ root:fileURLToPath(new URL('..',import.meta.url)), configFile:fileURLToPath(new URL('../vite.config.js',import.meta.url)), server: { middlewareMode: true }, appType: 'custom' })
 try {
   const { mockRequest } = await vite.ssrLoadModule('/src/api/mock/server.js')
   const seed = createSeed()
@@ -52,8 +53,33 @@ try {
     assert.equal((await mockRequest('GET', '/api/region-risk', { token: as })).status, 403)
   }
   const teacher = 'mock-' + seed.sys_user.find((u) => u.username === 'teacher').user_id
+  for (const batchId of ['', batches[0].batch_id]) {
+    const cm=await get('/api/eval/confusion',{batch_id:batchId},teacher)
+    const detail=await get('/api/eval/samples',{batch_id:batchId,size:200},teacher)
+    const rows=await allPages((p)=>get('/api/eval/samples',p,teacher),{batch_id:batchId})
+    for(const key of ['tp','fp','fn','tn']) {
+      assert.equal(detail.result_counts[key],cm[key])
+      assert.equal(rows.filter((r)=>r.result===key).length,cm[key])
+      const filtered=await get('/api/eval/samples',{batch_id:batchId,result:key},teacher)
+      assert.equal(filtered.total,cm[key])
+    }
+    assert.equal(detail.joined_total,cm.tp+cm.fp+cm.fn+cm.tn)
+    assert.equal(new Set(rows.map((r)=>r.row_id)).size,rows.length)
+    assert.equal(detail.sample_total,seed.eval_label.length)
+    for(const row of rows.filter((r)=>r.score_id===null)) assert.equal(row.prediction,0)
+  }
+  const board=await allPages((p)=>get('/api/clues',p))
+  assert.equal(board.length,seed.risk_clue.length)
+  for(const status of [0,1,2,3]) assert.equal(board.filter((r)=>r.clue_status===status).length,seed.risk_clue.filter((r)=>r.clue_status===status).length)
+  assert.equal((await mockRequest('GET','/api/eval/samples',{token:'mock-'+seed.sys_user.find((u)=>u.username==='analyst2').user_id})).status,403)
   assert.equal((await mockRequest('PATCH', `/api/clues/${seed.risk_clue[0].clue_id}/status`, { token: teacher, body: { status: 1 } })).status, 403)
-  console.log('PASS: single-batch scope, night hours, rule thresholds, pagination, map links, area filtering, role access')
+  const analystToken='mock-'+seed.sys_user.find((u)=>u.username==='analyst2').user_id
+  const openClue=seed.risk_clue.find((c)=>c.clue_status===0)
+  assert.equal((await mockRequest('PATCH',`/api/clues/${openClue.clue_id}/status`,{token:analystToken,body:{status:1}})).status,200)
+  assert.equal((await get(`/api/clues/${openClue.clue_id}`,{},analystToken)).clue.clue_status,1)
+  // 开始核查不会直接关闭线索；结论仍须经过反馈接口。
+  assert.equal((await get(`/api/clues/${openClue.clue_id}`,{},analystToken)).clue.close_at,null)
+  console.log('PASS: single-batch scope, night hours, rule thresholds, pagination, map links, area filtering, role access, kanban counts, evaluation detail reconciliation')
 } finally {
   await vite.close()
 }

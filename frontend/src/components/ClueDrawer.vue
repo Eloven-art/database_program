@@ -1,17 +1,13 @@
 <template>
-  <el-drawer :model-value="!!clueId" size="min(920px, 100vw)" :title="`线索详情 ${clueId || ''}`" @close="$emit('close')">
+  <el-drawer :model-value="!!clueId" class="clue-drawer" size="min(1240px, 100vw)" :title="`线索详情 ${clueId || ''}`" @close="$emit('close')">
     <AsyncState :loading="loading" :error="error" :data="data" @retry="load">
       <template v-if="data">
+        <div class="clue-workspace"><div class="clue-evidence">
         <div class="section head">
           <div>
             <div class="obj">{{ objectLabel(data.score) }}</div>
             <div class="meta muted">承办人 {{ data.clue.assignee_name || '未分配' }}</div>
             <el-collapse class="source-details"><el-collapse-item title="来源信息" name="source"><dl><dt>来源批次</dt><dd class="mono">{{ data.clue.batch_id }}</dd><dt>权重版本</dt><dd class="mono">{{ data.clue.version_id }}</dd><dt>生成时间</dt><dd>{{ data.clue.create_at }}</dd><dt>关闭时间</dt><dd>{{ data.clue.close_at || '—' }}</dd></dl></el-collapse-item></el-collapse>
-          </div>
-          <div class="score">
-            <div class="num big">{{ fixed(data.score.total_score) }}</div>
-            <LevelTag :level="data.score.risk_level" />
-            <StatusTag type="clue_status" :value="data.clue.clue_status" />
           </div>
         </div>
 
@@ -52,22 +48,21 @@
         </div>
           </el-tab-pane>
         </el-tabs>
+        </div>
+        <aside class="clue-summary" aria-label="核查摘要与操作">
+          <h3>核查摘要</h3><div class="num big">{{ fixed(data.score.total_score) }} <small>分</small></div>
+          <div class="summary-tags"><LevelTag :level="data.score.risk_level" /><StatusTag type="clue_status" :value="data.clue.clue_status" /></div>
+          <dl><dt>研判对象</dt><dd>{{ objectLabel(data.score) }}</dd><dt>承办人</dt><dd>{{ data.clue.assignee_name || '未分配' }}</dd><dt>生成时间</dt><dd>{{ data.clue.create_at }}</dd><dt>关闭时间</dt><dd>{{ data.clue.close_at || '—' }}</dd></dl>
+          <p class="muted small">{{ footerHint }}</p>
+          <ClueActions :status="data.clue.clue_status" :can-act="canAct" :acting="acting" @start="startCheck" @feedback="feedbackAction" />
+        </aside></div>
       </template>
     </AsyncState>
 
     <template #footer v-if="data">
       <div class="footer">
         <span class="muted small">{{ footerHint }}</span>
-        <div v-if="canAct">
-          <template v-if="data.clue.clue_status === 0">
-            <el-button type="primary" :loading="acting" @click="startCheck">开始核查</el-button>
-            <el-button @click="openFeedback(2, true, '直接排除')">直接排除</el-button>
-          </template>
-          <template v-else-if="data.clue.clue_status === 1">
-            <el-button type="danger" @click="openFeedback(1, false, '确认属实')">确认属实</el-button>
-            <el-button @click="openFeedback(2, false, '排除')">排除</el-button>
-          </template>
-        </div>
+        <ClueActions :status="data.clue.clue_status" :can-act="canAct" :acting="acting" @start="startCheck" @feedback="feedbackAction" />
       </div>
     </template>
 
@@ -86,6 +81,7 @@ import { fixed, objectLabel } from '@/utils/format'
 import AsyncState from './AsyncState.vue'
 import LevelTag from './LevelTag.vue'
 import StatusTag from './StatusTag.vue'
+import ClueActions from './ClueActions.vue'
 import FeatureJudgeTable from './FeatureJudgeTable.vue'
 import FeedbackDialog from './FeedbackDialog.vue'
 
@@ -139,6 +135,8 @@ async function startCheck() {
   }
 }
 
+function feedbackAction({preset,lock,title}) { openFeedback(preset,lock,title) }
+
 function openFeedback(preset, lock, title) {
   Object.assign(dialog, { open: true, preset, lock, title })
 }
@@ -168,6 +166,18 @@ async function onSubmitted() {
 .source-details dl { display: grid; grid-template-columns: 80px 1fr; gap: 8px; margin: 0; }
 .source-details dt { color: var(--text-muted); }.source-details dd { margin: 0; overflow-wrap: anywhere; }
 .clue-progress { margin: 20px 0; }
-@media(max-width:700px) { .head { flex-direction: column; }.score { flex-wrap: wrap; }.footer { flex-wrap: wrap; }.clue-progress { padding: 12px 8px; } }
+@media(max-width:700px) { .head { flex-direction: column; }.score { flex-wrap: wrap; }.footer { flex-wrap: wrap; }.clue-progress { padding: 12px 8px; }.clue-progress :deep(.el-step__title) { font-size:12px; white-space:nowrap; } }
 :deep(.el-alert) { margin-bottom: 16px; }
+</style>
+
+<style scoped>
+.clue-workspace { display:grid; grid-template-columns:minmax(0,1fr) 320px; gap:24px; height:calc(100dvh - 125px); }.clue-evidence { overflow-y:auto; min-width:0; padding:0 8px 20px 0; }.clue-summary { width:100%; align-self:start; max-height:100%; overflow-y:auto; background:#f3f6fa; border-radius:12px; padding:20px; }.clue-summary h3 { font-size:16px; margin:0 0 24px; }.clue-summary small { font-size:14px; font-weight:400; }.summary-tags { display:flex; gap:10px; margin:12px 0 24px; }.clue-summary dl { margin:0; }.clue-summary dt { color:var(--text-muted); font-size:12px; margin-top:16px; }.clue-summary dd { margin:6px 0 0; line-height:1.7; overflow-wrap:anywhere; }.clue-summary :deep(.clue-actions) { flex-direction:column; margin-top:20px; }.clue-summary :deep(.clue-actions .el-button) { width:100%; }
+:deep(.el-drawer__footer) { display:none; }
+@media(max-width:1000px) { .clue-workspace { display:flex; flex-direction:column-reverse; height:auto; }.clue-summary { max-height:none; }.clue-summary dl { display:none; }.clue-summary h3 { margin-bottom:12px; }.clue-summary :deep(.clue-actions),.clue-summary > .small { display:none; }.clue-evidence { overflow:visible; padding:0; }.clue-summary .big { font-size:26px; }.summary-tags { margin-bottom:0; }:deep(.el-drawer__footer) { display:block; } }
+</style>
+
+<style>
+/* Drawer 的 footer 由组件库生成，不带本组件的 scoped 标记。 */
+.clue-drawer > .el-drawer__footer { display:none; }
+@media(max-width:1000px) { .clue-drawer > .el-drawer__footer { display:block; } }
 </style>
