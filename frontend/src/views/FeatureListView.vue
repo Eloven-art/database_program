@@ -104,9 +104,9 @@ async function toggle(row, enabled) {
 <style scoped>
 .clickable-rows :deep(tr) { cursor: pointer; }
 /* 用一条竖线把训练源与研判源分开，视觉上强调双口径（《前端交接文档》D1 原型要点） */
-:deep(.col-match) { border-left: 3px solid var(--el-color-primary) !important; }
-:deep(th.col-train), :deep(th.col-match) { background: #f0f5ff !important; }
+:deep(.col-match) { border-left: 1px solid var(--el-color-primary) !important; }
+:deep(th.col-train), :deep(th.col-match) { background: #f1f4f1 !important; }
 :deep(.src-strong) { color: var(--el-color-primary); font-weight: 600; }
 :deep(.src-label) { font-size: 12px; color: var(--text-muted); }
-.neg { color: #529b2e; }
+.neg { color: var(--el-color-success); }
 </style>

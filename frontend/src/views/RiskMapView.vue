@@ -1,174 +1,105 @@
 <template>
-  <div class="page">
-    <div class="page-head">
-      <div>
-        <h2>风险地图</h2>
-        <p class="sub">按区域以红色深浅展示风险等级（颜色越深风险越高），拖动时间轴查看各观察夜的风险分布变化。坐标取自区域表 area_info 的经纬度字段。</p>
-      </div>
-      <div class="toolbar">
-        <el-tag type="info" effect="plain">{{ areas.length }} 个区域 · {{ dates.length }} 个观察夜</el-tag>
-      </div>
-    </div>
-
-    <AsyncState :loading="loading" :error="error" :data="mapData" empty-text="暂无区域坐标或风险数据" @retry="load">
-      <el-card v-if="mapData" shadow="never">
-        <template #header>
-          <div class="card-title">
-            区域风险分布
-            <span class="hint">示例城市（虚构）· 坐标为示例值，仅用于教学演示</span>
+  <div class="map-page">
+    <AsyncState :loading="loading" :error="error" :data="mapData" :empty="!!mapData && !areas.length" empty-text="暂无区域坐标或风险数据" @retry="load">
+      <div v-if="mapData" class="map-canvas" :class="{'legend-open':legendOpen}">
+        <RiskStreetMap ref="streetMap" :areas="areas" :risk="riskByArea" :selected="selectedId" :show-buildings="showBuildings" :show-links="showLinks" :mode="viewMode" :insets="sceneInsets" @select="selectArea" @mode="fallback=$event" />
+        <header ref="headingPanel" class="floating map-heading">
+          <h2>示例区域风险分布</h2>
+          <div class="map-range"><el-select :model-value="currentIdx" aria-label="选择观察夜" @change="selectDate"><el-option v-for="(d,i) in dates" :key="d" :label="d" :value="i" /></el-select><span class="muted">{{ activeCount }} / {{ areas.length }} 个区域有评分</span></div>
+          <div class="view-controls" role="group" aria-label="地图视角与缩放">
+            <div class="view-switch"><button :aria-pressed="viewMode==='inclined' && !fallback" :disabled="fallback" @click="viewMode='inclined'">倾斜</button><button :aria-pressed="viewMode==='top' || fallback" @click="viewMode='top'">俯视</button></div>
+            <el-button :icon="ZoomOut" aria-label="缩小地图" @click="streetMap?.zoom(1/1.2)" /><el-button :icon="ZoomIn" aria-label="放大地图" @click="streetMap?.zoom(1.2)" /><el-button :icon="RefreshLeft" aria-label="重置地图视角" @click="resetCamera" />
           </div>
-        </template>
-        <EChart v-if="chartOption" :option="chartOption" height="500px" />
-      </el-card>
-
-      <el-card v-if="mapData && dates.length" shadow="never">
-        <template #header>
-          <div class="card-title">
-            观察夜时间轴
-            <span class="hint">
-              当前：<b class="num">{{ currentDate }}</b> ·
-              参与研判 <b class="num">{{ activeCount }}</b> 个区域 ·
-              最高风险「{{ topArea?.area_name || '—' }}」（{{ topArea ? fixed(topArea.total_score) : '—' }} 分 · {{ topArea?.risk_level_name || '—' }}风险）
-            </span>
-          </div>
-        </template>
-
-        <div class="timeline">
-          <el-button :icon="VideoPlay" :disabled="playing" @click="play">播放</el-button>
-          <el-button :icon="VideoPause" :disabled="!playing" @click="pause">暂停</el-button>
-          <el-slider v-model="currentIdx" :min="0" :max="dates.length - 1" :step="1" class="slider" />
-          <span class="mono muted date-label">{{ currentDate }}</span>
+          <div class="layer-controls" role="group" aria-label="地图图层"><button :aria-pressed="showBuildings" @click="showBuildings=!showBuildings"><el-icon><OfficeBuilding /></el-icon>街区体块</button><button :aria-pressed="showLinks" @click="showLinks=!showLinks"><el-icon><Connection /></el-icon>空间链路</button><button :aria-pressed="fallback" aria-label="切换二维显示" @click="streetMap?.toggleFlat()">{{ fallback ? '返回三维' : '二维模式' }}</button></div>
+          <p class="map-help">拖动平移 · 滚轮缩放<span v-if="!fallback"> · 右键拖动旋转</span></p>
+          <details><summary>技术说明与示例范围</summary><p>按区域以红色深浅展示风险等级（颜色越深风险越高），拖动时间轴查看各观察夜的风险分布变化。坐标取自区域表 area_info 的经纬度字段。</p><p>示例城市（虚构）· 坐标为示例值，仅用于教学演示。</p><p>街道与链路为教学示意，链路表示空间邻近关系，无方向，不代表人员往来或风险传播。每个热斑表示一个区域的峰值评分，大小不表示真实覆盖范围。</p></details>
+        </header>
+        <div class="map-tools" role="toolbar" aria-label="地图快捷工具">
+          <el-tooltip content="刷新地图" placement="left"><el-button :icon="Refresh" :loading="loading" type="primary" aria-label="刷新地图" @click="pause();load()" /></el-tooltip>
+          <el-tooltip content="区域排行" placement="left"><el-button :icon="Sort" :aria-pressed="rankingOpen" aria-label="切换区域排行" @click="rankingOpen=!rankingOpen" /></el-tooltip>
+          <el-tooltip content="风险图例" placement="left"><el-button :icon="InfoFilled" :aria-pressed="legendOpen" aria-label="切换风险图例" @click="legendOpen=!legendOpen" /></el-tooltip>
+          <el-tooltip content="恢复最近观察夜" placement="left"><el-button :icon="Aim" aria-label="恢复最近观察夜" @click="resetView" /></el-tooltip>
         </div>
-
-        <div class="legend">
-          <span class="muted">风险总分</span>
-          <div class="gradient-bar" />
-          <span class="muted">0 · 低</span>
-          <span class="muted">9 · 高</span>
-          <span class="muted gray-dot" />
-          <span class="muted">当夜无研判数据</span>
-        </div>
-      </el-card>
+        <aside v-if="rankingOpen" class="floating ranking-panel" aria-label="区域风险排行">
+          <div class="panel-title"><h3>区域风险排行</h3><el-button text aria-label="关闭区域排行" @click="rankingOpen=false"><el-icon><Close /></el-icon></el-button></div>
+          <p class="muted">按当夜峰值分数排列，点击区域查看依据</p>
+          <div class="ranking-scroll"><button v-for="(a,i) in rankedAreas" :key="a.area_id" class="area-row" :class="{'is-selected':selectedId===a.area_id}" :aria-pressed="selectedId===a.area_id" @click="selectArea(a.area_id)"><span class="rank-num num">{{ i+1 }}</span><span class="area-name">{{ a.area_name }}<small>{{ a.risk ? `样本 ${a.risk.sample_size}` : '当夜无研判数据' }}</small></span><span class="area-value"><b class="num">{{ a.risk ? fixed(a.risk.total_score) : '—' }}</b><LevelTag v-if="a.risk" :level="a.risk.risk_level" /></span></button></div>
+        </aside>
+        <aside v-if="legendOpen" class="floating legend-panel"><div class="panel-title"><h3>风险图例</h3><el-button text aria-label="关闭风险图例" @click="legendOpen=false"><el-icon><Close /></el-icon></el-button></div><div class="legend"><span class="gradient-bar" /><span>0分 → 9分及以上</span><i class="gray-dot" /><span>当夜无研判数据</span></div></aside>
+        <section v-if="selectedArea" ref="selectionPanel" class="floating selection-panel" aria-live="polite">
+          <div class="selection-head"><div><h3>{{ selectedArea.area_name }}</h3><p class="muted">{{ currentDate || '暂无观察夜' }} · {{ selectedArea.area_type_name }}</p></div><LevelTag v-if="selectedArea.risk" :level="selectedArea.risk.risk_level" /><el-button text :aria-expanded="detailOpen" aria-label="展开或收起区域详情" @click="detailOpen=!detailOpen"><el-icon><component :is="detailOpen ? 'ArrowDown' : 'ArrowUp'" /></el-icon></el-button></div>
+          <div v-if="detailOpen"><template v-if="selectedArea.risk"><div class="selection-facts"><span>峰值 <b>{{ fixed(selectedArea.risk.total_score) }}</b> 分</span><span>命中 {{ selectedArea.risk.hit_cnt }} 项</span><span>样本 {{ selectedArea.risk.sample_size }}</span></div><div class="toolbar"><router-link v-if="selectedArea.risk.score_id != null" :to="{name:'risk-detail',params:{scoreId:selectedArea.risk.score_id}}">命中依据 →</router-link><router-link :to="{name:'risk',query:{area_id:selectedId,batch_id:selectedArea.risk.batch_id}}">区域评分 →</router-link><router-link v-if="auth.canPage('clues')" :to="{name:'clues',query:{area_id:selectedId}}">区域线索（全部时段） →</router-link></div><p class="mono muted batch-label">{{ selectedArea.risk.batch_id }}</p></template><p v-else class="muted">该区域当夜无研判数据，可切换观察夜查看。</p></div>
+        </section>
+        <section class="floating timeline-panel" aria-label="观察夜时间轴">
+          <el-button :icon="playing ? VideoPause : VideoPlay" :disabled="dates.length<2" @click="playing ? pause() : play()">{{ playing ? '暂停' : '播放' }}</el-button>
+          <div class="timeline-slider"><el-slider v-model="currentIdx" :min="0" :max="Math.max(1,dates.length-1)" :disabled="dates.length<2" :step="1" :marks="dateMarks" :format-tooltip="dateLabel" aria-label="观察夜时间轴" @change="pause" /></div><span class="num">{{ currentDate || '暂无观察夜' }}</span>
+        </section>
+      </div>
     </AsyncState>
   </div>
 </template>
-
 <script setup>
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { VideoPause, VideoPlay } from '@element-plus/icons-vue'
-import { api } from '@/api'
-import { useAsync } from '@/composables/useAsync'
-import { fixed } from '@/utils/format'
+import {computed,nextTick,onBeforeUnmount,onMounted,ref,watch} from 'vue'
+import {VideoPause,VideoPlay,Refresh,Sort,InfoFilled,Aim,ZoomIn,ZoomOut,RefreshLeft,OfficeBuilding,Connection} from '@element-plus/icons-vue'
+import {api} from '@/api'
+import {useAsync} from '@/composables/useAsync'
+import {useAuthStore} from '@/stores/auth'
+import {fixed} from '@/utils/format'
 import AsyncState from '@/components/AsyncState.vue'
-import EChart from '@/components/EChart.vue'
-
-// 风险地图数据：areas（含 lng/lat）、dates（观察夜）、risk（按日期×区域的峰值风险）
-const { data: mapData, loading, error, run: load } = useAsync(() => api.riskMap())
-
-const areas = computed(() => mapData.value?.areas || [])
-const dates = computed(() => mapData.value?.dates || [])
-const risk = computed(() => mapData.value?.risk || [])
-
-// 时间轴默认停在最新一个观察夜
-const currentIdx = ref(0)
-watch(dates, (d, old) => {
-  if (d.length && (!old || !old.length)) currentIdx.value = d.length - 1
-})
-
-const currentDate = computed(() => dates.value[currentIdx.value] || '')
-const currentRisk = computed(() => risk.value.find((r) => r.date === currentDate.value))
-const riskByArea = computed(() => {
-  const m = {}
-  currentRisk.value?.areas.forEach((a) => { m[a.area_id] = a })
-  return m
-})
-const activeCount = computed(() => currentRisk.value?.areas.length || 0)
-
-const areaById = computed(() => Object.fromEntries(areas.value.map((a) => [a.area_id, a])))
-const topArea = computed(() => {
-  const arr = currentRisk.value?.areas || []
-  if (!arr.length) return null
-  const top = arr.reduce((m, a) => (!m || a.total_score > m.total_score ? a : m))
-  return { ...top, area_name: areaById.value[top.area_id]?.area_name }
-})
-
-// 总分 0 → 9 映射为浅红 → 深红的连续渐变；无数据用中性灰
-function riskColor(score) {
-  if (score === null || score === undefined || Number.isNaN(score)) return '#e5e7eb'
-  const t = Math.max(0, Math.min(1, score / 9))
-  const lerp = (a, b) => Math.round(a + (b - a) * t)
-  return `rgb(${lerp(253, 154)}, ${lerp(232, 18)}, ${lerp(232, 18)})`
+import RiskStreetMap from '@/components/RiskStreetMap.vue'
+import LevelTag from '@/components/LevelTag.vue'
+const auth=useAuthStore()
+const {data:mapData,loading,error,run:load}=useAsync(()=>api.riskMap())
+const areas=computed(()=>mapData.value?.areas || []), dates=computed(()=>mapData.value?.dates || [])
+const currentIdx=ref(0),selectedId=ref(''),playing=ref(false)
+const rankingOpen=ref(window.innerWidth > 1200), legendOpen=ref(false), detailOpen=ref(window.innerWidth>600)
+const streetMap=ref(null),headingPanel=ref(null),selectionPanel=ref(null)
+const showBuildings=ref(true),showLinks=ref(true),viewMode=ref('inclined'),fallback=ref(false)
+const sceneInsets=ref({left:420,right:370,top:36,bottom:130})
+let panelObserver=null
+function measurePanels(){
+  const wide=window.innerWidth>1200
+  sceneInsets.value=wide ? {left:420,right:rankingOpen.value?370:76,top:36,bottom:140} : {left:20,right:20,top:(headingPanel.value?.offsetHeight||240)+36,bottom:(detailOpen.value?Math.max(180,selectionPanel.value?.offsetHeight||0):60)+146}
 }
-
-const chartOption = computed(() => {
-  if (!areas.value.length) return null
-  const lngs = areas.value.map((p) => p.lng)
-  const lats = areas.value.map((p) => p.lat)
-  const pad = 0.018
-  const minX = Math.min(...lngs) - pad
-  const maxX = Math.max(...lngs) + pad
-  const minY = Math.min(...lats) - pad
-  const maxY = Math.max(...lats) + pad
-  return {
-    tooltip: {
-      formatter: (p) => {
-        const a = p.data.area
-        const r = p.data.risk
-        const head = `<b>${a.area_name}</b>（${a.area_id} · ${a.area_type_name}）<br/>`
-        if (!r) return `${head}<span style="color:#909399">当夜无研判数据</span>`
-        return `${head}风险等级：<b>${r.risk_level_name}风险</b><br/>总分：<b>${r.total_score.toFixed(2)}</b><br/>命中特征 ${r.hit_cnt} 项 · 样本量 ${r.sample_size}<br/>批次 ${r.batch_id}`
-      },
-    },
-    grid: { left: 24, right: 24, top: 16, bottom: 24 },
-    xAxis: {
-      type: 'value', min: minX, max: maxX,
-      axisLabel: { show: false }, axisLine: { show: false }, axisTick: { show: false },
-      splitLine: { show: true, lineStyle: { color: '#f2f4f7', type: 'dashed' } },
-    },
-    yAxis: {
-      type: 'value', min: minY, max: maxY,
-      axisLabel: { show: false }, axisLine: { show: false }, axisTick: { show: false },
-      splitLine: { show: true, lineStyle: { color: '#f2f4f7', type: 'dashed' } },
-    },
-    series: [{
-      type: 'scatter',
-      symbolSize: 34,
-      data: areas.value.map((a) => {
-        const r = riskByArea.value[a.area_id] || null
-        return { value: [a.lng, a.lat], area: a, risk: r, itemStyle: { color: riskColor(r?.total_score) } }
-      }),
-      label: {
-        show: true, position: 'bottom', distance: 6,
-        formatter: (p) => p.data.area.area_name,
-        color: '#606266', fontSize: 11,
-      },
-      itemStyle: { shadowBlur: 10, shadowColor: 'rgba(0,0,0,0.18)' },
-    }],
-  }
+function resetCamera(){viewMode.value='inclined';nextTick(()=>streetMap.value?.reset())}
+let timer=null
+function resetView(){pause();currentIdx.value=Math.max(0,dates.value.length-1);selectedId.value=rankedAreas.value[0]?.area_id || '';detailOpen.value=true}
+function selectArea(id){pause();selectedId.value=id;detailOpen.value=true;nextTick(()=>streetMap.value?.focusArea(id))}
+watch(dates,(d,old)=>{if(d.length && !old?.length)currentIdx.value=d.length-1})
+const currentDate=computed(()=>dates.value[currentIdx.value] || '')
+const currentRisk=computed(()=>mapData.value?.risk.find((r)=>r.date===currentDate.value))
+const riskByArea=computed(()=>Object.fromEntries((currentRisk.value?.areas || []).map((a)=>[a.area_id,a])))
+const activeCount=computed(()=>currentRisk.value?.areas.length || 0)
+const rankedAreas=computed(()=>areas.value.map((a)=>({...a,risk:riskByArea.value[a.area_id]})).sort((a,b)=>(b.risk?.total_score ?? -Infinity)-(a.risk?.total_score ?? -Infinity) || a.area_id.localeCompare(b.area_id)))
+const selectedArea=computed(()=>rankedAreas.value.find((a)=>a.area_id===selectedId.value))
+watch(rankedAreas,(rows)=>{if(!rows.some((a)=>a.area_id===selectedId.value))selectedId.value=rows[0]?.area_id || ''},{immediate:true})
+const dateLabel=(i)=>dates.value[i] || ''
+const dateMarks=computed(()=>{
+  const ids=[0,Math.floor((dates.value.length-1)/2),dates.value.length-1].filter((i)=>i>=0)
+  return Object.fromEntries([...new Set(ids)].map((i)=>[i,dates.value[i]?.slice(5)]))
 })
-
-// 播放控制：每 1.6 秒推进一个观察夜，循环播放
-const playing = ref(false)
-let timer = null
-function play() {
-  if (playing.value || !dates.value.length) return
-  playing.value = true
-  timer = setInterval(() => {
-    currentIdx.value = (currentIdx.value + 1) % dates.value.length
-  }, 1600)
-}
-function pause() {
-  playing.value = false
-  if (timer) { clearInterval(timer); timer = null }
-}
-onBeforeUnmount(pause)
+function selectDate(i){pause();currentIdx.value=i}
+function play(){if(playing.value || dates.value.length<2)return;playing.value=true;timer=setInterval(()=>{currentIdx.value=(currentIdx.value+1)%dates.value.length},1600)}
+function pause(){playing.value=false;if(timer){clearInterval(timer);timer=null}}
+watch([headingPanel,selectionPanel],()=>{panelObserver?.disconnect();if(headingPanel.value)panelObserver?.observe(headingPanel.value);if(selectionPanel.value)panelObserver?.observe(selectionPanel.value);measurePanels()},{flush:'post'})
+watch(rankingOpen,()=>nextTick(measurePanels))
+onMounted(()=>{panelObserver=new ResizeObserver(measurePanels);if(headingPanel.value)panelObserver.observe(headingPanel.value);if(selectionPanel.value)panelObserver.observe(selectionPanel.value);window.addEventListener('resize',measurePanels);measurePanels()})
+onBeforeUnmount(()=>{pause();panelObserver?.disconnect();window.removeEventListener('resize',measurePanels)})
 </script>
+<style scoped>
+.map-page { height:100%; min-height:680px; }.map-page :deep(> div),.map-page :deep(.el-loading-parent--relative) { height:100%; }.map-canvas { position:relative; height:100%; min-height:680px; background:#eef0eb; overflow:hidden; }.floating { position:absolute; background:#ffffff; border-radius:14px; box-shadow:0 4px 20px #20282e10; padding:20px; }.map-heading { top:16px; left:16px; width:min(480px,calc(100% - 96px)); background:#ffffff; }.map-heading h2 { margin:0 0 12px; font-size:28px; font-weight:500; }.map-range { display:flex; gap:12px; align-items:center; flex-wrap:wrap; font-size:13px; }.map-range .el-select { width:160px; }details { margin-top:12px; font-size:12px; color:var(--text-muted); }summary { cursor:pointer; }details p { line-height:1.7; max-width:65ch; }
+.map-tools { position:absolute; top:16px; right:16px; display:flex; flex-direction:column; gap:8px; }.map-tools .el-button { width:44px; height:44px; margin:0; box-shadow:0 1px 4px #20282e0d; }
+.panel-title,.selection-head { display:flex; align-items:center; gap:8px; justify-content:space-between; }h3 { font-size:16px; font-weight:500; margin:0; }.ranking-panel { top:16px; right:76px; width:280px; max-height:calc(100% - 160px); display:flex; flex-direction:column; }.ranking-panel > p { font-size:12px; line-height:1.6; margin:8px 0; }.ranking-scroll { overflow:auto; }.area-row { display:flex; width:100%; align-items:center; gap:8px; padding:12px 4px; background:transparent; border:0; border-bottom:1px solid var(--card-border); color:inherit; font:inherit; text-align:left; cursor:pointer; }.area-row:hover,.area-row.is-selected { background:#f0f3ee; }.rank-num { width:16px; color:var(--text-muted); }.area-name { flex:1; }.area-name small { display:block; margin-top:5px; font-size:12px; color:var(--text-muted); }.area-value { display:flex; flex-direction:column; align-items:flex-end; gap:4px; }
+.selection-panel { bottom:126px; left:16px; width:min(460px,calc(100% - 32px)); }.selection-head p { font-size:12px; margin:6px 0 0; }.selection-facts { display:flex; gap:18px; flex-wrap:wrap; margin:14px 0; }.selection-panel .toolbar { gap:12px; font-size:13px; }.batch-label { margin:12px 0 0; font-size:12px; }.timeline-panel { bottom:16px; left:16px; right:16px; display:flex; align-items:center; gap:24px; min-height:88px; }.timeline-slider { flex:1; min-width:0; padding:0 12px 18px; }.timeline-panel > span { font-size:13px; }.legend-panel { right:76px; bottom:126px; width:260px; }.legend { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:12px; font-size:12px; }.gradient-bar { width:100%; height:10px; background:linear-gradient(to right,#f4e4de,#a84039); }.gray-dot { width:12px; height:12px; background:#dce1dd; border-radius:50%; }
+@media(max-width:1000px) { .ranking-panel { top:180px; right:16px; max-height:300px; z-index:2; }.legend-panel { right:16px; bottom:126px; z-index:3; } }
+@media(max-width:600px) { .map-heading h2 { font-size:23px; }.map-heading { width:calc(100% - 88px); padding:12px; }.timeline-panel { gap:12px; padding:12px; }.timeline-panel > span { display:none; }.selection-panel { padding:12px; }.map-page,.map-canvas { min-height:720px; }.map-page { overflow:auto; } }
+</style>
 
 <style scoped>
-.timeline { display: flex; align-items: center; gap: 12px; }
-.slider { flex: 1; margin: 0 8px; }
-.date-label { min-width: 86px; text-align: right; }
-.legend { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 12px; }
-.gradient-bar { width: 180px; height: 12px; border-radius: 6px; background: linear-gradient(to right, rgb(253, 232, 232), rgb(154, 18, 18)); }
-.gray-dot { width: 12px; height: 12px; border-radius: 50%; background: #e5e7eb; display: inline-block; margin-left: 8px; }
+.ranking-panel .area-row { min-height:72px; border-radius:6px; }.rank-num { font-family:var(--font-mono); font-size:11px; }.area-value b { font-family:var(--font-data); font-size:20px; font-weight:500; }.area-name { font-size:13px; }.panel-title .el-button { width:32px; min-height:32px; padding:4px; }.map-heading details { border-top:1px solid var(--card-border); padding-top:12px; }.selection-facts b { font-family:var(--font-data); font-size:24px; font-weight:500; }.timeline-panel > span { font-family:var(--font-mono); }.map-tools .el-button { border-color:var(--card-border); }.selection-panel .toolbar { gap:12px 16px; }
+.map-heading{width:380px;padding:20px}.map-heading h2{font-size:24px;margin-bottom:12px}.selection-panel{width:380px}.view-controls{display:flex;align-items:center;gap:6px;margin-top:16px}.view-switch{display:flex;background:var(--surface-inset,#ecefed);padding:3px;border-radius:7px;margin-right:auto}.view-switch button,.layer-controls button{border:0;background:transparent;font:inherit;font-size:12px;cursor:pointer;color:var(--text-secondary);border-radius:5px;min-height:30px;padding:4px 12px}.view-switch button[aria-pressed=true]{background:#fff;color:var(--accent-ink);box-shadow:0 1px 3px #20282e12}.view-switch button:disabled{cursor:default;opacity:.5}.view-controls .el-button{width:32px;min-height:32px;height:32px;padding:5px;margin:0}.layer-controls{display:flex;gap:8px;margin-top:10px}.layer-controls button{display:flex;align-items:center;gap:6px;padding:4px 8px;color:var(--text-muted)}.layer-controls button[aria-pressed=true]{color:var(--accent-ink);background:var(--accent-soft,#eef2fb)}.map-help{font-size:11px;line-height:1.7;color:var(--text-muted);margin:10px 0 0}.map-heading details{margin-top:10px;padding-top:10px}.ranking-panel{max-height:calc(100% - 160px)}
+@media(max-width:1200px){.map-page,.map-canvas{min-height:980px}.map-heading{width:min(380px,calc(100% - 96px))}.ranking-panel{top:320px;right:16px;max-height:340px;z-index:3}.selection-panel{width:min(460px,calc(100% - 32px))}.legend-panel{z-index:4}}
+@media(max-width:600px){.map-heading{width:calc(100% - 88px);padding:12px}.map-heading h2{font-size:21px}.map-range{gap:6px;font-size:11px}.map-range .el-select{width:132px}.view-controls{margin-top:8px}.view-switch button{padding:4px 10px}.map-help{display:none}.selection-panel{padding:12px}.map-page,.map-canvas{min-height:760px}.map-tools .el-button{width:40px;height:40px}.timeline-panel{gap:8px}.layer-controls{gap:5px;margin-top:6px}.layer-controls button{padding:4px 6px}}
+.legend-open .ranking-panel{max-height:calc(100% - 310px)}
+@media(max-width:1200px){.legend-open .ranking-panel{max-height:190px}}
 </style>

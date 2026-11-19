@@ -11,7 +11,7 @@ defineProps({
 })
 
 const TYPES = {
-  clue_status: { 0: 'warning', 1: 'primary', 2: 'danger', 3: 'info' },
+  clue_status: { 0: 'warning', 1: 'primary', 2: 'info', 3: 'info' },
   run_status: { 0: 'info', 1: 'primary', 2: 'success', 3: 'danger' },
   publish_status: { 0: 'info', 1: 'success', 2: 'warning' },
   check_result: { 1: 'danger', 2: 'success', 3: 'info' },

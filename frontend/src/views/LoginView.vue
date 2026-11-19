@@ -85,15 +85,15 @@ async function submit() {
 </script>
 
 <style scoped>
-.login { min-height: 100%; display: flex; align-items: center; justify-content: center; padding: 24px; background: linear-gradient(135deg, #001529 0%, #0b3a63 100%); }
+.login { min-height: 100%; display: flex; align-items: center; justify-content: center; padding: 24px; background: var(--page-bg); }
 .panel { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 40px; max-width: 980px; width: 100%; align-items: center; }
 @media (max-width: 860px) { .panel { grid-template-columns: minmax(0, 1fr); } }
-.intro { color: #fff; }
-.intro h1 { font-size: 30px; margin: 0 0 8px; }
-.lead { color: rgba(255, 255, 255, 0.7); margin: 0 0 20px; }
-.intro ul { padding-left: 18px; line-height: 2; color: rgba(255, 255, 255, 0.88); }
-.boundary { margin-top: 20px; font-size: 13px; color: rgba(255, 255, 255, 0.6); border-left: 3px solid #e6a23c; padding-left: 10px; line-height: 1.7; }
-.form-card { border-radius: 10px; }
+.intro { color: var(--text-primary); }
+.intro h1 { font-size: 32px; font-weight:500; margin: 0 0 8px; }
+.lead { color: var(--text-secondary); margin: 0 0 20px; }
+.intro ul { padding-left: 18px; line-height: 2; color: var(--text-secondary); }
+.boundary { margin-top: 20px; font-size: 13px; color: var(--text-muted); border-left: 1px solid var(--card-border); padding-left: 16px; line-height: 1.7; }
+.form-card { border-radius:16px; }
 .form-card h3 { margin: 0 0 16px; }
 .full { width: 100%; }
 .demo { margin-top: 20px; border-top: 1px dashed var(--card-border); padding-top: 14px; }

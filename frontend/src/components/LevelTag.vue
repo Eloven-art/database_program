@@ -14,7 +14,8 @@ const label = computed(() => `${enumLabel('risk_level', lv.value)}风险`)
 </script>
 
 <style scoped>
-.level { display: inline-block; padding: 1px 10px; border-radius: 4px; font-size: 12px; line-height: 20px; font-weight: 600; white-space: nowrap; }
+.level { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; line-height: 16px; font-weight: 500; white-space: nowrap; }
+.level::before { content:""; display:inline-block; width:4px; height:4px; border-radius:50%; margin-right:6px; background:currentColor; vertical-align:2px; }
 .lv-1 { color: var(--level-low); background: var(--level-low-bg); }
 .lv-2 { color: var(--level-mid); background: var(--level-mid-bg); }
 .lv-3 { color: var(--level-high); background: var(--level-high-bg); }

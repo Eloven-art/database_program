@@ -1,25 +1,26 @@
 <template>
-  <el-container class="layout">
-    <el-aside width="220px" class="aside">
+  <el-container class="layout" :class="{'nav-open': navOpen}">
+    <el-aside :width="navExpanded ? '220px' : '72px'" class="aside" :class="{ expanded: navExpanded }" @keydown.esc="navOpen=false">
       <div class="brand">
-        <div class="brand-title">多风险特征预警系统</div>
-        <div class="brand-sub">以酒驾为例 · 第 6 组</div>
+        <el-tooltip :disabled="navExpanded" content="多风险特征预警系统 · 第6组" placement="right"><router-link to="/" class="brand-link" aria-label="多风险特征预警系统首页"><el-icon :size="24"><Odometer /></el-icon><span v-if="navExpanded">多风险特征预警系统<small>以酒驾为例 · 第6组</small></span></router-link></el-tooltip>
       </div>
-      <el-menu :default-active="activeMenu" router class="menu">
-        <template v-for="group in visibleMenu" :key="group.title">
-          <el-menu-item-group :title="group.title">
-            <el-menu-item v-for="item in group.items" :key="item.path" :index="item.path">
-              <el-icon><component :is="item.icon" /></el-icon>
-              <span>{{ item.title }}</span>
-              <span class="code">{{ item.code }}</span>
-            </el-menu-item>
-          </el-menu-item-group>
-        </template>
-      </el-menu>
+      <nav class="rail-menu" aria-label="主导航">
+        <div v-for="group in visibleMenu" :key="group.title" class="rail-group" :aria-label="group.title">
+          <div v-if="navExpanded" class="group-title">{{ group.title }}</div>
+          <el-tooltip v-for="item in group.items" :key="item.path" :content="item.title" :trigger="['hover','focus']" :disabled="navExpanded || navOpen" placement="right">
+            <router-link :to="item.path" class="rail-link" :class="{ active: activeMenu===item.path }" :aria-current="activeMenu===item.path ? 'page' : undefined" :aria-label="item.title">
+              <el-icon :size="18"><component :is="item.icon" /></el-icon><span class="rail-label">{{ item.title }}</span><span class="code">{{ item.code }}</span>
+            </router-link>
+          </el-tooltip>
+        </div>
+      </nav>
+      <el-button class="rail-expand" text :aria-label="navExpanded ? '收起文字导航' : '展开文字导航'" :aria-expanded="navExpanded" @click="navExpanded=!navExpanded"><el-icon><component :is="navExpanded ? 'Fold' : 'Expand'" /></el-icon><span v-if="navExpanded">收起导航</span></el-button>
     </el-aside>
 
+    <button v-if="navOpen" class="nav-backdrop" aria-label="关闭导航" @click="navOpen=false" />
     <el-container class="right">
       <el-header class="header">
+        <el-button class="nav-toggle" text :aria-expanded="navOpen" aria-label="切换导航" @click="navOpen=!navOpen"><el-icon><Menu /></el-icon></el-button>
         <el-breadcrumb separator="/">
           <el-breadcrumb-item v-if="parentRoute" :to="{ name: parentRoute.name }">{{ parentRoute.meta.title }}</el-breadcrumb-item>
           <el-breadcrumb-item>{{ route.meta.title }}</el-breadcrumb-item>
@@ -30,12 +31,12 @@
           </el-tooltip>
           <el-tag v-else type="success" effect="plain">已连接后端</el-tag>
           <el-dropdown trigger="click" @command="onCommand">
-            <span class="user">
+            <button type="button" class="user" aria-label="用户菜单">
               <el-icon><User /></el-icon>
               {{ auth.user?.real_name }}
               <el-tag v-for="r in auth.roles" :key="r" size="small" class="role-tag">{{ ROLE_LABEL[r] }}</el-tag>
               <el-icon><ArrowDown /></el-icon>
-            </span>
+            </button>
             <template #dropdown>
               <el-dropdown-menu>
                 <el-dropdown-item v-if="API_MODE === 'mock'" command="reset" :icon="RefreshLeft">重置演示数据</el-dropdown-item>
@@ -46,7 +47,7 @@
         </div>
       </el-header>
 
-      <el-main class="main">
+      <el-main class="main" :class="{ 'canvas-main': route.name==='risk-map' }">
         <slot />
       </el-main>
 
@@ -59,7 +60,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { RefreshLeft, SwitchButton } from '@element-plus/icons-vue'
@@ -69,7 +70,10 @@ import { useAuthStore } from '@/stores/auth'
 import { ROLE_LABEL } from '@/constants/enums'
 import HealthLight from './HealthLight.vue'
 
+const navOpen = ref(false)
+const navExpanded = ref(false)
 const route = useRoute()
+watch(() => route.fullPath, () => { navOpen.value = false })
 const router = useRouter()
 const auth = useAuthStore()
 
@@ -125,27 +129,19 @@ async function onCommand(cmd) {
 </script>
 
 <style scoped>
-.layout { height: 100%; }
-.aside { background: #001529; color: #fff; display: flex; flex-direction: column; overflow-y: auto; }
-.brand { padding: 18px 20px 14px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
-.brand-title { font-size: 16px; font-weight: 600; }
-.brand-sub { font-size: 12px; color: rgba(255, 255, 255, 0.55); margin-top: 4px; }
-.menu {
-  border-right: none;
-  --el-menu-bg-color: #001529;
-  --el-menu-text-color: rgba(255, 255, 255, 0.75);
-  --el-menu-hover-bg-color: #0c2a47;
-  --el-menu-active-color: #fff;
-  --el-menu-item-height: 44px;
+.layout { height:100%; }
+.aside { background:var(--rail-bg); color:#fff; display:flex; flex-direction:column; overflow-y:auto; flex-shrink:0; }
+.brand { padding:20px 12px; }.brand-link { color:#fff; display:flex; align-items:center; gap:12px; justify-content:center; text-decoration:none; }.brand-link span { font-size:14px; font-weight:600; }.brand-link small { display:block; margin-top:6px; font-size:12px; color:#9da9ae; font-weight:400; }
+.rail-menu { flex:1; padding:0 12px; }.rail-group { padding:10px 0; }.rail-group + .rail-group { border-top:1px solid #394148; }.group-title { font-size:12px; color:#9da9ae; padding:0 12px 8px; }
+.rail-link { display:flex; align-items:center; justify-content:center; min-height:40px; padding:8px; margin:4px 0; gap:10px; color:#b7c0c4; border-radius:8px; text-decoration:none; }.rail-link:hover { background:var(--rail-raised); color:#fff; }.rail-link.active { background:#354048; color:#fff; box-shadow:inset 0 1px 0 #ffffff0d; }.rail-link.active .el-icon { color:#adc0ee; }.rail-label,.code { display:none; }.expanded .rail-link { justify-content:flex-start; }.expanded .rail-label,.expanded .code { display:inline; }.code { margin-left:auto; font-size:11px; font-family:Consolas,monospace; color:#9da9ae; }
+.rail-expand { color:#b7c0c4; min-height:48px; margin:12px; }.rail-expand:hover { color:#fff; background:var(--rail-raised); }
+.right { min-width:0; }.header { height:56px; display:flex; align-items:center; justify-content:space-between; background:#fbfcfa; border-bottom:1px solid var(--card-border); gap:12px; }.header-right { display:flex; align-items:center; gap:12px; }.user { display:flex; align-items:center; gap:6px; cursor:pointer; background:transparent; border:0; font:inherit; color:inherit; padding:6px; }.role-tag { margin-left:2px; }
+.main { padding:24px; overflow-y:auto; }.main.canvas-main { padding:0; overflow:auto; }.footer { display:flex; justify-content:space-between; align-items:center; gap:16px; padding:8px 24px; font-size:12px; color:var(--text-muted); border-top:1px solid var(--card-border); background:#fff; flex-wrap:wrap; }
+.nav-toggle,.nav-backdrop { display:none; }
+@media(max-width:900px) {
+  .aside { width:220px!important; position:fixed; inset:0 auto 0 0; z-index:2100; transform:translateX(-100%); transition:transform .18s ease-out; }.nav-open .aside { transform:translateX(0); }.rail-link { justify-content:flex-start; }.rail-label,.code { display:inline; }.rail-expand { display:none; }
+  .nav-toggle { display:inline-flex; }.nav-backdrop { display:block; position:fixed; inset:0 0 0 220px; background:rgba(15,23,42,.35); border:0; z-index:2099; }.header { padding:0 12px; }.header-right { gap:6px; margin-left:auto; }.role-tag { display:none; }.main { padding:16px; }.footer { padding:10px 16px; }
 }
-.menu :deep(.el-menu-item.is-active) { background: var(--el-color-primary); }
-.menu :deep(.el-menu-item-group__title) { color: rgba(255, 255, 255, 0.4); padding-left: 20px !important; }
-.code { margin-left: auto; font-size: 11px; opacity: 0.5; font-family: Consolas, monospace; }
-.right { min-width: 0; }
-.header { display: flex; align-items: center; justify-content: space-between; background: #fff; border-bottom: 1px solid var(--card-border); gap: 12px; }
-.header-right { display: flex; align-items: center; gap: 12px; }
-.user { display: flex; align-items: center; gap: 6px; cursor: pointer; outline: none; }
-.role-tag { margin-left: 2px; }
-.main { padding: 20px; overflow-y: auto; }
-.footer { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 10px 20px; font-size: 12px; color: var(--text-muted); border-top: 1px solid var(--card-border); background: #fff; flex-wrap: wrap; }
+@media(max-width:480px) { .header :deep(.el-breadcrumb) { display:none; }.header-right :deep(.el-tag) { font-size:11px; } }
+@media(prefers-reduced-motion:reduce) { .aside { transition:none; } }
 </style>

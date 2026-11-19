@@ -5,16 +5,19 @@ export function useAsync(fn, { immediate = true } = {}) {
   const data = shallowRef(null)
   const loading = ref(false)
   const error = ref(null)
+  let requestId = 0
 
   async function run(...args) {
+    const id = ++requestId
     loading.value = true
     error.value = null
     try {
-      data.value = await fn(...args)
+      const result = await fn(...args)
+      if (id === requestId) data.value = result
     } catch (e) {
-      error.value = e
+      if (id === requestId) error.value = e
     } finally {
-      loading.value = false
+      if (id === requestId) loading.value = false
     }
     return data.value
   }
