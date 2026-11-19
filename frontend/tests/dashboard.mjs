@@ -3,11 +3,32 @@ import { createServer } from 'vite'
 import { fileURLToPath } from 'node:url'
 import { createSeed } from '../src/api/mock/seed.js'
 import { allPages, byNewest, heatCells, nightHours } from '../src/utils/dashboard.js'
+import { streetLayout, riskColor } from '../src/utils/street-map.js'
 
 const vite = await createServer({ root:fileURLToPath(new URL('..',import.meta.url)), configFile:fileURLToPath(new URL('../vite.config.js',import.meta.url)), server: { middlewareMode: true }, appType: 'custom' })
 try {
   const { mockRequest } = await vite.ssrLoadModule('/src/api/mock/server.js')
   const seed = createSeed()
+  // Visual topology must be connected, stable across input order, and leave data intact.
+  const source = structuredClone(seed.area_info)
+  const street = streetLayout(source)
+  assert.equal(street.nodes.length, 12)
+  assert.equal(street.edges.length, 15)
+  assert.deepEqual(streetLayout([...source].reverse()), street)
+  assert.deepEqual(source, seed.area_info)
+  const reached = new Set([street.nodes[0].area_id])
+  for (let i=0;i<street.nodes.length;i++) for (const edge of street.edges) {
+    if(reached.has(edge.a)) reached.add(edge.b)
+    if(reached.has(edge.b)) reached.add(edge.a)
+  }
+  assert.equal(reached.size, street.nodes.length)
+  assert.equal(new Set(street.edges.map((e)=>e.id)).size,street.edges.length)
+  for(const node of street.nodes) assert.ok(Number.isFinite(node.x)&&Number.isFinite(node.z))
+  assert.equal(streetLayout([]).edges.length,0)
+  assert.equal(streetLayout([source[0]]).edges.length,0)
+  assert.equal(streetLayout([{...source[0],lng:null}]).nodes.length,0)
+  assert.notEqual(riskColor(0),riskColor(null))
+  assert.equal(riskColor(9),riskColor(20))
   const token = 'mock-' + seed.sys_user.find((u) => u.username === 'analyst1').user_id
   const get = async (path, params = {}, as = token) => {
     const response = await mockRequest('GET', path + '?' + new URLSearchParams(params), { token: as })
@@ -79,7 +100,7 @@ try {
   assert.equal((await get(`/api/clues/${openClue.clue_id}`,{},analystToken)).clue.clue_status,1)
   // 开始核查不会直接关闭线索；结论仍须经过反馈接口。
   assert.equal((await get(`/api/clues/${openClue.clue_id}`,{},analystToken)).clue.close_at,null)
-  console.log('PASS: single-batch scope, night hours, rule thresholds, pagination, map links, area filtering, role access, kanban counts, evaluation detail reconciliation')
+  console.log('PASS: stable street topology, single-batch scope, night hours, rule thresholds, pagination, map links, area filtering, role access, kanban counts, evaluation detail reconciliation')
 } finally {
   await vite.close()
 }
