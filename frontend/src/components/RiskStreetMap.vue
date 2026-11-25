@@ -1,7 +1,15 @@
 <template>
-  <div ref="root" class="street-map" tabindex="0" aria-label="区域风险地图，方向键平移，加减键缩放" @keydown="onKey">
+  <div ref="root" class="street-map" :class="{interacting:interactive}" tabindex="0" aria-label="城市弧面风险地图，方向键旋转，加减键缩放，Esc恢复页面滚动" @keydown="onKey">
+    <div class="globe-controls" @click="emit('interact')">
+      <button class="interaction-button" :aria-pressed="interactive" @click="setInteractive(!interactive)">{{ interactive?'退出操作 · Esc':'操作地图' }}</button>
+      <button aria-label="缩小地图" @click="zoom(1/1.2)"><el-icon><ZoomOut/></el-icon></button><button aria-label="放大地图" @click="zoom(1.2)"><el-icon><ZoomIn/></el-icon></button>
+      <button @click="reset">查看全貌</button><button v-if="replayEnabled" @click="scene?.focusChain()">聚焦当前链</button><button v-else :disabled="!selected" @click="focusArea(selected)">区域近景</button>
+      <button :aria-pressed="fallback" @click="toggleFlat">{{fallback?'返回三维':'二维回退'}}</button>
+      <span>{{interactive?(fallback?'拖动平移 · 滚轮缩放':'拖动旋转 · 滚轮缩放'):'上下滑动页面 · 开启操作后缩放地图'}}</span>
+    </div>
+    <div ref="viewport" class="scene-viewport">
     <div v-show="!fallback" ref="host" class="scene-host" />
-    <svg v-if="fallback" class="flat-map" :viewBox="flatViewBox" aria-label="二维街区风险地图" @pointerdown="flatDown" @pointermove="flatMove" @pointerup="flatUp" @pointercancel="flatUp" @wheel.prevent="flatWheel">
+    <svg v-if="fallback" class="flat-map" :viewBox="flatViewBox" aria-label="二维街区风险地图" @pointerdown="flatDown" @pointermove="flatMove" @pointerup="flatUp" @pointercancel="flatUp" @wheel="flatWheel">
       <defs><radialGradient id="street-heat"><stop offset="0" stop-color="#fff" stop-opacity=".7" /><stop offset="1" stop-color="#fff" stop-opacity="0" /></radialGradient><mask id="street-heat-mask" maskContentUnits="objectBoundingBox"><rect width="1" height="1" fill="url(#street-heat)" /></mask><radialGradient id="street-sphere" cx="30%" cy="25%" r="80%"><stop offset="0" stop-color="#fff" stop-opacity=".9"/><stop offset=".35" stop-color="#fff" stop-opacity=".08"/><stop offset="1" stop-color="#17282e" stop-opacity=".45"/></radialGradient></defs>
       <rect x="-1000" y="-1000" width="2000" height="2000" fill="#e9ede7" />
       <image :href="mapTextureUrl" x="-360" y="-360" width="720" height="720" />
@@ -22,9 +30,10 @@
       <template v-if="hover.kind==='node'"><strong>{{ hoverNode?.area_name }}</strong><template v-if="hoverRisk"><span>{{ hoverRisk.total_score==null ? (hoverRisk.status_label || '未评分') : `${hoverRisk.risk_level_name}风险 · ${fixed(hoverRisk.total_score)} 分` }}</span><span>近三小时消费 {{ hoverRisk.sample_size }} 条<span v-if="hoverRisk.total_score!=null"> · 命中 {{ hoverRisk.hit_cnt }} 项</span></span></template><span v-else>当前时段无研判记录</span></template>
       <template v-else><strong>{{ hoverEdgeNames }}</strong><span>空间邻近示意 · 无方向连接</span></template>
     </div>
-    <div class="scene-status"><span>{{ fallback ? '二维街区' : '三维街区' }}</span><span>街道与链路为教学示意</span></div>
-    <div v-if="fallback" class="fallback-note" :style="{top:size.w>1128?'16px':`${insets.top-14}px`}" role="status">{{ fallbackReason }}<button @click="start">重试三维</button></div>
-    <div v-if="starting" class="scene-loading" role="status">正在加载三维街区…</div>
+    <div class="scene-status"><span>{{ fallback ? '二维区域图' : '城市弧面' }}</span><span>虚构城市 · 街区及位置均为教学示意</span></div>
+    <div v-if="fallback" class="fallback-note"  role="status">{{ fallbackReason }}<button @click="start">重试三维</button></div>
+    <div v-if="starting" class="scene-loading" role="status">正在渲染立体城市街区…</div>
+    </div>
   </div>
 </template>
 
@@ -34,8 +43,10 @@ import { streetLayout, riskColor, edgeHeight } from '@/utils/street-map'
 import {mapTextureUrl} from '@/utils/map-cartography'
 import {jumpPoint,replaySegments} from '@/utils/clue-replay'
 import { fixed } from '@/utils/format'
+import {ZoomIn,ZoomOut} from '@element-plus/icons-vue'
 const props=defineProps({areas:{type:Array,required:true},risk:{type:Object,required:true},selected:{type:String,default:''},showBuildings:{type:Boolean,default:true},showLinks:{type:Boolean,default:true},mode:{type:String,default:'inclined'},insets:{type:Object,default:()=>({})},replayEnabled:{type:Boolean,default:false}})
 const emit=defineEmits(['select','mode','interact'])
+const interactive=ref(false),viewport=ref(null)
 const root=ref(null),host=ref(null),projected=ref([]),fallback=ref(false),starting=ref(true),hover=ref(null),tipPosition=ref({x:0,y:0})
 const fallbackReason=ref('当前设备暂无法显示三维，已保留二维地图与全部业务操作。')
 const layout=computed(()=>streetLayout(props.areas))
@@ -48,7 +59,7 @@ const flatReplayLines=computed(()=>flatReplay.value?replaySegments(flatReplay.va
 const flatTraveller=computed(()=>{const s=flatReplay.value;if(!s)return null;const b=layout.value.nodes.find(n=>n.area_id===s.events[s.index]?.area_id),a=layout.value.nodes.find(n=>n.area_id===s.events[s.index-1]?.area_id);return b?jumpPoint(a||b,b,s.progress):null})
 function replayPath(line){const a=layout.value.nodes.find(n=>n.area_id===line.from),b=layout.value.nodes.find(n=>n.area_id===line.to);return a&&b?`M ${a.x} ${a.z} Q ${(a.x+b.x)/2} ${(a.z+b.z)/2-edgeHeight(Math.hypot(a.x-b.x,a.z-b.z))*.45} ${b.x} ${b.z}`:''}
 const flatDimensions=computed(()=>{
-  const {w,h}=size.value,{left=24,right=24,top=180,bottom=260}=props.insets
+  const {w,h}=size.value,{left=24,right=24,top=24,bottom=24}=props.insets
   const fullH=Math.max(202*h/Math.max(180,h-top-bottom),202*h/Math.max(180,w-left-right))/flatCamera.value.zoom
   const fullW=fullH*w/h
   return {w:fullW,h:fullH,x:-fullW/2+flatCamera.value.x-(left-right)/w*fullW/2,z:-fullH/2+flatCamera.value.z-(top-bottom)/h*fullH/2}
@@ -78,7 +89,7 @@ const tipStyle=computed(()=>({left:`${Math.max(8,Math.min(size.value.w-260,tipPo
 function receiveHover(value,event){
   hover.value=value
   if(!value)return
-  const rect=root.value.getBoundingClientRect()
+  const rect=viewport.value.getBoundingClientRect()
   if(event?.clientX != null && event.type!=='focus')tipPosition.value={x:event.clientX-rect.left,y:event.clientY-rect.top}
   else {const p=positions.value.find((n)=>n.area_id===value.id);tipPosition.value={x:p?.left||rect.width/2,y:p?.top||rect.height/2}}
 }
@@ -99,20 +110,23 @@ async function start(){
     const {createStreetScene}=await import('./street-scene')
     if(disposed||current!==generation)return
     scene=createStreetScene(host.value,layout.value,{onProject:(rows)=>{projected.value=rows},onHover:receiveHover,onSelect:(id)=>emit('select',id),onFailure:useFallback,onInteract:()=>emit('interact')})
-    updateScene();scene.replay(latestReplay);starting.value=false;emit('mode',false)
+    updateScene();scene.setInteractive(interactive.value);scene.replay(latestReplay);starting.value=false;emit('mode',false)
   }catch {if(!disposed&&current===generation)useFallback()}
 }
+function setInteractive(value){interactive.value=value;scene?.setInteractive(value);emit('interact')}
 function reset(){hover.value=null;flatCamera.value={x:0,z:0,zoom:1};scene?.reset()}
 function zoom(factor){if(scene)scene.zoom(factor);else flatCamera.value={...flatCamera.value,zoom:Math.max(.6,Math.min(3.5,flatCamera.value.zoom*factor))}}
 function focusArea(id){if(scene)scene.focus(id);else {const n=layout.value.nodes.find((n)=>n.area_id===id);if(n)flatCamera.value={...flatCamera.value,x:n.x*.45,z:n.z*.45}}}
 function pan(x,z){if(scene)scene.pan(x,z);else flatCamera.value={...flatCamera.value,x:flatCamera.value.x+x,z:flatCamera.value.z+z}}
 function onKey(e){
+  if(e.key==='Escape'){setInteractive(false);return}
   if(e.target!==root.value)return
   const actions={ArrowLeft:()=>pan(-8,0),ArrowRight:()=>pan(8,0),ArrowUp:()=>pan(0,-8),ArrowDown:()=>pan(0,8),'+':()=>zoom(1.2),'=':()=>zoom(1.2),'-':()=>zoom(1/1.2),Home:reset}
   if(actions[e.key]){e.preventDefault();emit('interact');actions[e.key]()}
 }
 const pointers=new Map();let flatGesture=null
 function flatDown(e){
+  if(!interactive.value)return
   emit('interact')
   pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});e.currentTarget.setPointerCapture(e.pointerId)
   flatGesture={camera:{...flatCamera.value},points:[...pointers.values()],moved:false,start:{x:e.clientX,y:e.clientY}}
@@ -126,22 +140,20 @@ function flatMove(e){
 }
 function flatUp(e){
   if(flatGesture&&!flatGesture.moved&&pointers.size===1&&e.type!=='pointercancel'){
-    const rect=root.value.getBoundingClientRect(),p=positions.value.find((n)=>Math.hypot(n.left-(e.clientX-rect.left),n.top-(e.clientY-rect.top))<16)
+    const rect=viewport.value.getBoundingClientRect(),p=positions.value.find((n)=>Math.hypot(n.left-(e.clientX-rect.left),n.top-(e.clientY-rect.top))<16)
     if(p)emit('select',p.area_id)
   }
   pointers.delete(e.pointerId);flatGesture=null
 }
-function flatWheel(e){emit('interact');zoom(e.deltaY<0?1.1:1/1.1)}
+function flatWheel(e){if(!interactive.value)return;e.preventDefault();emit('interact');const delta=e.deltaY*(e.deltaMode===1?16:1);zoom(Math.exp(-Math.max(-160,Math.min(160,delta))*.002))}
 watch(()=>[props.risk,props.selected,props.showBuildings,props.showLinks,props.mode,props.insets],()=>{hover.value=null;updateScene()},{deep:true})
 watch(layout,()=>{if(!fallback.value)start()})
-onMounted(()=>{observer=new ResizeObserver(()=>{size.value={w:root.value.clientWidth,h:root.value.clientHeight}});observer.observe(root.value);start()})
+onMounted(()=>{observer=new ResizeObserver(()=>{size.value={w:viewport.value.clientWidth,h:viewport.value.clientHeight}});observer.observe(viewport.value);start()})
 onBeforeUnmount(()=>{disposed=true;generation++;observer?.disconnect();scene?.dispose()})
 defineExpose({reset,zoom,focusArea,toggleFlat,setReplayFrame})
 </script>
 
 <style scoped>
-.street-map,.scene-host,.flat-map,.map-labels{position:absolute;inset:0;width:100%;height:100%}.street-map{background:#e9ede7;outline-offset:-3px}.scene-host :deep(canvas){display:block;touch-action:none}.flat-map{touch-action:none;cursor:grab}.map-labels{pointer-events:none;overflow:hidden}.map-label{position:absolute;transform:translateX(-50%);pointer-events:auto;white-space:nowrap;background:#f8faf5e8;border:0;border-radius:4px;padding:3px 6px;color:#4c5b50;font:12px/1.5 var(--font-ui);cursor:pointer}.map-label:hover,.map-label.is-selected{background:#fff;color:#284da6;box-shadow:0 2px 6px #26382d16}.map-label b{margin-left:7px;font-family:var(--font-data);font-weight:500}.map-point-tip{position:absolute;z-index:5;pointer-events:none;display:flex;flex-direction:column;gap:5px;max-width:250px;background:#fff;padding:12px 16px;border-radius:10px;box-shadow:0 5px 20px #20282e1a;font-size:12px;line-height:1.6}.map-point-tip strong{font-size:13px;font-weight:500}.map-point-tip span{color:var(--text-secondary)}.scene-status{position:absolute;left:16px;bottom:115px;display:flex;gap:10px;pointer-events:none;color:#526254;font-size:11px;line-height:1.7}.scene-status span{background:#f8faf5e8;padding:2px 6px;border-radius:3px}.fallback-note{position:absolute;left:16px;top:205px;max-width:360px;padding:8px 12px;background:#fff;font-size:12px;line-height:1.8;box-shadow:0 3px 12px #20282e10;border-radius:8px}.fallback-note button{background:transparent;border:0;color:var(--accent-ink);cursor:pointer;padding:4px 8px;font:inherit}.scene-loading{position:absolute;left:50%;top:45%;transform:translate(-50%,-50%);background:#fff;padding:12px 18px;border-radius:10px;font-size:13px}
-@media(max-width:600px){.map-label{font-size:11px;padding:2px 4px}.scene-status{left:12px;right:12px;bottom:115px;gap:6px;flex-wrap:wrap}.fallback-note{top:260px;left:12px;right:12px}.map-point-tip{max-width:240px}}
-.scene-status{bottom:107px;font-size:10px;line-height:1.5}.fallback-note{left:420px;max-width:calc(100% - 800px)}
-@media(max-width:1200px){.fallback-note{left:16px;right:76px;max-width:360px}}
+.street-map{position:relative;display:flex;flex-direction:column;background:#132631;border-radius:12px;overflow:hidden;min-width:0;outline-offset:-3px}.globe-controls{display:flex;align-items:center;gap:5px;flex-wrap:wrap;padding:10px 12px;background:#19343f;color:#e5f0f4;flex-shrink:0}.globe-controls button{border:0;background:#254653;border-radius:5px;color:inherit;font:12px var(--font-ui);padding:7px 9px;cursor:pointer;min-height:32px;display:inline-flex;align-items:center;gap:4px}.globe-controls button:hover{background:#365d6c}.globe-controls button:disabled{opacity:.5}.globe-controls .interaction-button{background:#d4e9ef;color:#16333f}.globe-controls .interaction-button[aria-pressed=true]{background:#a5dcf1;color:#112e3b}.globe-controls>span{font-size:10px;color:#bdd0d8;margin-left:auto}.scene-viewport{position:relative;flex:1;min-height:0;overflow:hidden}.scene-host,.flat-map,.map-labels{position:absolute;inset:0;width:100%;height:100%}.scene-host :deep(canvas){display:block}.flat-map{touch-action:pan-y}.interacting .flat-map{touch-action:none;cursor:grab}.map-labels{pointer-events:none;overflow:hidden}.map-label{position:absolute;transform:translateX(-50%);pointer-events:auto;white-space:nowrap;background:#17333feb;border:1px solid #90b7c24d;border-radius:4px;padding:3px 7px;color:#f0f6f7;font:12px/1.5 var(--font-ui);cursor:pointer}.map-label:hover,.map-label.is-selected{background:#e2f3f7;color:#15394c}.map-label b{margin-left:7px;font-family:var(--font-data);font-weight:500}.map-point-tip{position:absolute;z-index:5;pointer-events:none;display:flex;flex-direction:column;gap:5px;max-width:250px;background:#fff;padding:12px 16px;border-radius:10px;box-shadow:0 5px 20px #0b17251a;font-size:12px;line-height:1.6}.map-point-tip strong{font-size:13px;font-weight:500}.map-point-tip span{color:var(--text-secondary)}.scene-status{position:absolute;left:14px;bottom:12px;display:flex;gap:10px;pointer-events:none;color:#d2e3ea;font-size:10px;line-height:1.7;flex-wrap:wrap}.scene-status span{background:#132e3bd9;padding:2px 6px;border-radius:3px}.fallback-note{position:absolute;left:12px;top:12px;right:12px;width:fit-content;max-width:calc(100% - 24px);padding:8px 12px;background:#fff;font-size:11px;line-height:1.8;border-radius:8px}.fallback-note button{background:transparent;border:0;color:var(--accent-ink);cursor:pointer;padding:4px 8px;font:inherit}.scene-loading{position:absolute;left:50%;top:45%;transform:translate(-50%,-50%);background:#fff;padding:12px 18px;border-radius:10px;font-size:13px;white-space:nowrap}
+@media(max-width:600px){.map-label{font-size:10px;padding:2px 4px}.globe-controls{gap:4px;padding:8px}.globe-controls button{padding:6px 8px;font-size:11px}.globe-controls>span{margin-left:0;flex-basis:100%;line-height:1.6}.scene-status{gap:4px;left:8px;bottom:8px}.map-point-tip{max-width:220px}}
 </style>

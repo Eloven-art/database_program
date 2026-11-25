@@ -1,214 +1,184 @@
 import * as THREE from 'three'
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
-import { edgeHeight, riskColor } from '@/utils/street-map'
-import {mapTextureUrl} from '@/utils/map-cartography'
-import {jumpPoint,replaySegments} from '@/utils/clue-replay'
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js'
+import {riskColor} from '@/utils/street-map'
+import {replaySegments} from '@/utils/clue-replay'
+import {GLOBE_RADIUS as R,globeLayout,globeJump,angularDistance,wheelDistance} from '@/utils/globe-math'
+import {createCitySurfaces,CITY_BOUNDS,riverLongitude,cityRoadLatitudes,CITY_ANGLE_SCALE,cityWarp} from './city-surfaces'
 
-// Imported only by the map route. The scene renders on demand, without particles.
-export function createStreetScene(host, layout, callbacks) {
-  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75))
-  renderer.setClearColor('#e9ede7', 1)
-  renderer.domElement.setAttribute('aria-hidden', 'true')
-  host.appendChild(renderer.domElement)
-  const scene = new THREE.Scene(), camera = new THREE.OrthographicCamera(-120, 120, 120, -120, .1, 1500)
-  const controls = new OrbitControls(camera, renderer.domElement)
-  controls.enableDamping = false
-  controls.screenSpacePanning = false
-  controls.minZoom = .6; controls.maxZoom = 3.5
-  controls.mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE }
-  controls.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE }
-  controls.minPolarAngle = .3; controls.maxPolarAngle = Math.PI / 2.6
-  scene.add(new THREE.HemisphereLight('#ffffff', '#b0bba9', 1.1))
-  const sun = new THREE.DirectionalLight('#ffffff', 1)
-  sun.position.set(-100, 220, 80); scene.add(sun)
-  const ground = new THREE.Group(), buildings = new THREE.Group(), links = new THREE.Group()
-  scene.add(ground, buildings, links)
-  const plane = (w, d, color, x, z, y = .03) => {
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, d), new THREE.MeshBasicMaterial({ color }))
-    mesh.rotation.x = -Math.PI / 2; mesh.position.set(x, y, z); ground.add(mesh); return mesh
+export function createStreetScene(host,layout,callbacks){
+  const renderer=new THREE.WebGLRenderer({antialias:true})
+  renderer.setPixelRatio(Math.min(devicePixelRatio||1,1.75));renderer.setClearColor('#e0e9e6')
+  renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.1
+  renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap
+  renderer.domElement.setAttribute('aria-hidden','true');host.appendChild(renderer.domElement)
+  const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(42,1,.1,1800)
+  camera.position.set(0,R+420,310)
+  const controls=new OrbitControls(camera,renderer.domElement)
+  controls.enableDamping=true;controls.dampingFactor=.12;controls.enablePan=false
+  controls.target.set(0,R*.99,0);controls.minDistance=150;controls.maxDistance=1000;controls.minPolarAngle=.35;controls.maxPolarAngle=1.35;controls.minAzimuthAngle=-1.1;controls.maxAzimuthAngle=1.1
+  controls.mouseButtons={LEFT:THREE.MOUSE.ROTATE,MIDDLE:THREE.MOUSE.DOLLY,RIGHT:THREE.MOUSE.ROTATE}
+  controls.touches={ONE:THREE.TOUCH.ROTATE,TWO:THREE.TOUCH.DOLLY_ROTATE}
+  scene.add(new THREE.HemisphereLight('#edf8ff','#779b8e',1.6))
+  const sun=new THREE.DirectionalLight('#fff5dc',2.0);sun.position.set(-330,R+500,500);sun.target.position.set(0,R*.97,0);sun.castShadow=true;sun.shadow.mapSize.set(1024,1024);Object.assign(sun.shadow.camera,{left:-350,right:350,top:350,bottom:-350,near:1,far:1400});sun.shadow.bias=-.001;scene.add(sun,sun.target)
+  const fill=new THREE.DirectionalLight('#9acbea',1.2);fill.position.set(180,R+180,-100);scene.add(fill)
+  const nodes=globeLayout(layout.nodes),byId=new Map(nodes.map(n=>[n.area_id,n])),nodeMeshes=[]
+  const surfaces=createCitySurfaces(nodes),textures=Object.fromEntries(['color','relief','detail'].map(k=>[k,new THREE.CanvasTexture(surfaces[k])]))
+  textures.color.colorSpace=THREE.SRGBColorSpace;textures.detail.colorSpace=THREE.SRGBColorSpace
+  Object.values(textures).forEach(t=>{t.anisotropy=Math.min(8,renderer.capabilities.getMaxAnisotropy())})
+  const rad=THREE.MathUtils.degToRad
+  const capGeometry=()=>new THREE.SphereGeometry(R,128,96,Math.PI/2-rad(CITY_BOUNDS.lon*CITY_ANGLE_SCALE),rad(CITY_BOUNDS.lon*2*CITY_ANGLE_SCALE),Math.PI/2-rad(CITY_BOUNDS.lat*CITY_ANGLE_SCALE),rad(CITY_BOUNDS.lat*2*CITY_ANGLE_SCALE)).rotateX(-Math.PI/2)
+  const globe=new THREE.Mesh(capGeometry(),new THREE.MeshStandardMaterial({map:textures.color,roughness:.9,metalness:0}))
+  globe.receiveShadow=true;scene.add(globe)
+  const details=new THREE.Group();scene.add(details)
+  const hitTargets=[globe]
+  const rawPoint=(lon,lat,r=R)=>{const a=rad(lon*CITY_ANGLE_SCALE),b=rad(lat*CITY_ANGLE_SCALE);return new THREE.Vector3(r*Math.cos(b)*Math.sin(a),r*Math.cos(b)*Math.cos(a),-r*Math.sin(b))}
+  const point=(lon,lat,r=R)=>{const [l,t]=cityWarp(lon,lat);return rawPoint(l,t,r)}
+  const basis=(lon,lat)=>{const [l]=cityWarp(lon,lat),up=point(lon,lat,1),east=new THREE.Vector3(Math.cos(rad(l*CITY_ANGLE_SCALE)),-Math.sin(rad(l*CITY_ANGLE_SCALE)),0),south=new THREE.Vector3().crossVectors(east,up).normalize();east.crossVectors(up,south).normalize();return new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(east,up,south))}
+  // A thin shell: convex upper ground and concave lower face, never a complete globe.
+  const underside=new THREE.Mesh(capGeometry().scale((R-5)/R,(R-5)/R,(R-5)/R),new THREE.MeshStandardMaterial({color:'#c6c9b7',roughness:1,side:THREE.BackSide}));scene.add(underside)
+  const rimPoints=[]
+  for(let i=0;i<=80;i++)rimPoints.push([-60+i*1.5,-42])
+  for(let i=1;i<=56;i++)rimPoints.push([60,-42+i*1.5])
+  for(let i=1;i<=80;i++)rimPoints.push([60-i*1.5,42])
+  for(let i=1;i<=56;i++)rimPoints.push([-60,42-i*1.5])
+  const rimVertices=[],rimIndices=[]
+  rimPoints.forEach(([l,t],i)=>{for(const radius of [R,R-5]){const v=rawPoint(l,t,radius);rimVertices.push(v.x,v.y,v.z)}if(i){const a=(i-1)*2;rimIndices.push(a,a+1,a+2,a+1,a+3,a+2)}})
+  const rimGeo=new THREE.BufferGeometry();rimGeo.setAttribute('position',new THREE.Float32BufferAttribute(rimVertices,3));rimGeo.setIndex(rimIndices);rimGeo.computeVertexNormals();scene.add(new THREE.Mesh(rimGeo,new THREE.MeshStandardMaterial({color:'#c4c6b5',roughness:1,side:THREE.DoubleSide})))
+  const dummy=new THREE.Object3D()
+  const facade=document.createElement('canvas');facade.width=128;facade.height=256
+  const fc=facade.getContext('2d');fc.fillStyle='#f1efe4';fc.fillRect(0,0,128,256)
+  for(let row=0;row<9;row++)for(let col=0;col<4;col++){fc.fillStyle=(row+col)%4===0?'#9ab1b7':'#78949e';fc.fillRect(10+col*29,12+row*27,15,18);fc.fillStyle='#c6d9db';fc.fillRect(12+col*29,13+row*27,3,16)}
+  const facadeTexture=new THREE.CanvasTexture(facade);facadeTexture.colorSpace=THREE.SRGBColorSpace
+  const wall=new THREE.MeshStandardMaterial({map:facadeTexture,roughness:.85}),roof=new THREE.MeshStandardMaterial({color:'#eef0e5',roughness:.9})
+  const boxes=new THREE.InstancedMesh(new THREE.BoxGeometry(1,1,1),[wall,wall,roof,roof,wall,wall],surfaces.buildings.length)
+  const roofUnits=new THREE.InstancedMesh(new THREE.BoxGeometry(1,1,1),new THREE.MeshStandardMaterial({color:'#909d9a',roughness:.85}),surfaces.buildings.length)
+  const tones=['#eee6d2','#d6e2e1','#f0ddc3','#d8cab5','#e1e5d6']
+  surfaces.buildings.forEach((b,i)=>{dummy.quaternion.copy(basis(b.lon,b.lat)).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),b.yaw||0));dummy.position.copy(point(b.lon,b.lat,R+b.h/2));dummy.scale.set(b.w,b.h,b.d);dummy.updateMatrix();boxes.setMatrixAt(i,dummy.matrix);boxes.setColorAt(i,new THREE.Color(tones[b.shade%tones.length]));dummy.position.copy(point(b.lon,b.lat,R+b.h+.7));dummy.scale.set(b.w*.25,1.4,b.d*.4);dummy.updateMatrix();roofUnits.setMatrixAt(i,dummy.matrix)})
+  boxes.castShadow=boxes.receiveShadow=true;roofUnits.castShadow=true;details.add(boxes,roofUnits)
+  const trunks=new THREE.InstancedMesh(new THREE.CylinderGeometry(.18,.26,1,5),new THREE.MeshStandardMaterial({color:'#776951',roughness:1}),surfaces.trees.length)
+  const crowns=new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1,1),new THREE.MeshStandardMaterial({roughness:1}),surfaces.trees.length)
+  surfaces.trees.forEach((t,i)=>{dummy.quaternion.copy(basis(t.lon,t.lat));dummy.position.copy(point(t.lon,t.lat,R+t.h*.3));dummy.scale.set(1,t.h*.6,1);dummy.updateMatrix();trunks.setMatrixAt(i,dummy.matrix);dummy.position.copy(point(t.lon,t.lat,R+t.h*.75));dummy.scale.set(t.r,t.h*.45,t.r);dummy.updateMatrix();crowns.setMatrixAt(i,dummy.matrix);crowns.setColorAt(i,new THREE.Color(['#689753','#81aa61','#9abb76'][i%3]))})
+  crowns.castShadow=true;details.add(trunks,crowns)
+  const cars=new THREE.InstancedMesh(new THREE.BoxGeometry(1,1,1),new THREE.MeshStandardMaterial({roughness:.4}),surfaces.cars.length)
+  surfaces.cars.forEach((c,i)=>{dummy.quaternion.copy(basis(c.lon,c.lat));dummy.position.copy(point(c.lon,c.lat,R+.65));dummy.scale.set(1.15,1.1,2.5);dummy.updateMatrix();cars.setMatrixAt(i,dummy.matrix);cars.setColorAt(i,new THREE.Color(['#e5e4db','#718d9b','#a8b1ad'][c.shade%3]))});cars.castShadow=true;details.add(cars)
+  function ribbon(samples,material,radius=R+.08){
+    const positions=[],indices=[]
+    samples.forEach(([left,right],i)=>{for(const [lon,lat] of [left,right]){const p=point(lon,lat,radius);positions.push(p.x,p.y,p.z)}if(i){const a=(i-1)*2;indices.push(a,a+1,a+2,a+1,a+3,a+2)}})
+    const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));geometry.setIndex(indices);geometry.computeVertexNormals();const mesh=new THREE.Mesh(geometry,material);mesh.receiveShadow=true;scene.add(mesh);return mesh
   }
-  plane(2000, 2000, '#e9ede7', 0, 0, 0)
-  const texture=new THREE.TextureLoader().load(mapTextureUrl,()=>invalidate())
-  texture.colorSpace=THREE.SRGBColorSpace;texture.anisotropy=Math.min(8,renderer.capabilities.getMaxAnisotropy())
-  const mapPlane=plane(720,720,'#ffffff',0,0,.04);mapPlane.material.map=texture
-  if (layout.buildings.length) {
-    const boxes = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshLambertMaterial({ color: '#d1dacd',emissive:'#d1dacd',emissiveIntensity:.25,transparent:true,opacity:.55 }), layout.buildings.length)
-    const feet = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({color:'#bdc8b7',transparent:true,opacity:.24,depthWrite:false}),layout.buildings.length)
-    const dummy = new THREE.Object3D()
-    layout.buildings.forEach((b, i) => {
-      dummy.position.set(b.x, b.h / 2 + .1, b.z); dummy.scale.set(b.w, b.h, b.d); dummy.updateMatrix(); boxes.setMatrixAt(i, dummy.matrix)
-      // A flat displaced footprint supplies depth without expensive shadow passes.
-      dummy.rotation.x=-Math.PI/2;dummy.position.set(b.x+.7,.09,b.z+.8);dummy.scale.set(b.w+.6,b.d+.8,1);dummy.updateMatrix();feet.setMatrixAt(i,dummy.matrix);dummy.rotation.x=0
-    })
-    buildings.add(boxes,feet)
+  ribbon(Array.from({length:169},(_,i)=>{const lat=-42+i*.5,lon=riverLongitude(lat);return [[lon-1.05,lat],[lon+1.05,lat]]}),new THREE.MeshStandardMaterial({color:'#7dc6d5',roughness:.32,metalness:.16,side:THREE.DoubleSide}))
+  for(const [j,lat] of cityRoadLatitudes.entries()){
+    const half=j%4===1?.62:.35,lon=riverLongitude(lat)
+    ribbon(Array.from({length:9},(_,i)=>{const l=lon-1.5+i*.375;return [[l,lat-half],[l,lat+half]]}),new THREE.MeshStandardMaterial({color:'#a3acab',roughness:.8,side:THREE.DoubleSide}),R+.65)
+    for(const side of [-1,1]){const path=Array.from({length:12},(_,i)=>point(lon-1.5+i/11*3,lat+side*(half+.06),R+.9));scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(path),new THREE.LineBasicMaterial({color:'#e5e2d5'})))}
   }
-  const heatCanvas = document.createElement('canvas'); heatCanvas.width = heatCanvas.height = 128
-  const ctx = heatCanvas.getContext('2d')
-  const gradient = ctx.createRadialGradient(64, 64, 0, 64, 64, 64)
-  gradient.addColorStop(0, '#ffffffc0'); gradient.addColorStop(.3, '#ffffff80'); gradient.addColorStop(1, '#ffffff00')
-  ctx.fillStyle = gradient; ctx.fillRect(0, 0, 128, 128)
-  const heatTexture = new THREE.CanvasTexture(heatCanvas)
-  const nodeMeshes = [], edgeMeshes = [], hitTargets = []
-  for (const n of layout.nodes) {
-    const heat = new THREE.Mesh(new THREE.PlaneGeometry(22, 22), new THREE.MeshBasicMaterial({ map: heatTexture, transparent: true, depthWrite: false }))
-    heat.rotation.x = -Math.PI / 2; heat.position.set(n.x, .15, n.z); scene.add(heat)
-    const point = new THREE.Mesh(new THREE.SphereGeometry(3.5,24,16), new THREE.MeshStandardMaterial({roughness:.35,metalness:.08}))
-    point.position.set(n.x, 4, n.z); point.userData = { kind: 'node', id: n.area_id }; scene.add(point)
-    const ring = new THREE.Mesh(new THREE.RingGeometry(4.2, 4.6, 40), new THREE.MeshBasicMaterial({ color: '#345fc5', side: THREE.DoubleSide }))
-    ring.rotation.x = -Math.PI / 2; ring.position.set(n.x, .2, n.z); scene.add(ring)
-    nodeMeshes.push({ node: n, point, ring, heat }); hitTargets.push(point)
+
+  const normal=v=>new THREE.Vector3(v.x,v.y,v.z).normalize()
+  const orient=(mesh,n,radius)=>{mesh.position.copy(normal(n).multiplyScalar(radius));mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),normal(n))}
+  const heatCanvas=document.createElement('canvas');heatCanvas.width=heatCanvas.height=64
+  const hc=heatCanvas.getContext('2d'),g=hc.createRadialGradient(32,32,0,32,32,32)
+  g.addColorStop(0,'#ffffffcc');g.addColorStop(1,'#ffffff00');hc.fillStyle=g;hc.fillRect(0,0,64,64)
+  const heatTexture=new THREE.CanvasTexture(heatCanvas)
+  for(const n of nodes){
+    const ball=new THREE.Mesh(new THREE.SphereGeometry(2.8,20,14),new THREE.MeshStandardMaterial({roughness:.3,metalness:.08}))
+    ball.position.copy(normal(n).multiplyScalar(R+3));ball.userData={kind:'node',id:n.area_id};scene.add(ball);hitTargets.push(ball)
+    const ring=new THREE.Mesh(new THREE.RingGeometry(3,3.45,48),new THREE.MeshBasicMaterial({color:'#f5f6ee',side:THREE.DoubleSide}))
+    orient(ring,n,R+.5);scene.add(ring)
+    const heat=new THREE.Mesh(new THREE.PlaneGeometry(13,13),new THREE.MeshBasicMaterial({map:heatTexture,transparent:true,opacity:.65,depthWrite:false,side:THREE.DoubleSide}))
+    orient(heat,n,R+.3);scene.add(heat);nodeMeshes.push({node:n,ball,ring,heat})
   }
-  const byId = new Map(layout.nodes.map((n) => [n.area_id, n]))
-  const replayGroup=new THREE.Group();scene.add(replayGroup)
-  const traveller=new THREE.Mesh(new THREE.SphereGeometry(4,24,16),new THREE.MeshStandardMaterial({color:'#345fc5',roughness:.24,metalness:.12}))
-  const shadow=new THREE.Mesh(new THREE.PlaneGeometry(12,12),new THREE.MeshBasicMaterial({map:heatTexture,color:'#334736',transparent:true,opacity:.3,depthWrite:false}))
-  shadow.rotation.x=-Math.PI/2
-  const landing=new THREE.Mesh(new THREE.RingGeometry(3.4,3.8,48),new THREE.MeshBasicMaterial({color:'#345fc5',transparent:true,side:THREE.DoubleSide}))
-  landing.rotation.x=-Math.PI/2
-  replayGroup.add(traveller,shadow,landing);replayGroup.visible=false
-  let replayEvents=null,replayLines=[],replayEnabled=false
-  function replayFrame(state){
-    replayEnabled=!!state;replayGroup.visible=!!state;links.visible=!state&&visibleLinks
+  const neighbourhood=new THREE.Group(),replayGroup=new THREE.Group();scene.add(neighbourhood,replayGroup)
+  const neighbourhoodMeshes=[]
+  const tracePoints=(a,b)=>Array.from({length:73},(_,i)=>{const p=globeJump(a,b,i/72*.76);return new THREE.Vector3(p.x,p.y,p.z)})
+  for(const edge of layout.edges){
+    const a=byId.get(edge.a),b=byId.get(edge.b)
+    const line=new THREE.Line(new THREE.BufferGeometry().setFromPoints(tracePoints(a,b)),new THREE.LineBasicMaterial({color:'#456a82',transparent:true,opacity:.38}))
+    line.userData={kind:'edge',id:edge.id};neighbourhood.add(line);neighbourhoodMeshes.push({edge,line});hitTargets.push(line)
+  }
+  const traveller=new THREE.Mesh(new THREE.SphereGeometry(3.7,24,16),new THREE.MeshStandardMaterial({color:'#266bcb',emissive:'#102a55',emissiveIntensity:.7,roughness:.2,metalness:.1}))
+  const landing=new THREE.Mesh(new THREE.RingGeometry(3.2,3.7,48),new THREE.MeshBasicMaterial({color:'#2464b5',transparent:true,side:THREE.DoubleSide}))
+  const shadow=new THREE.Mesh(new THREE.PlaneGeometry(9,9),new THREE.MeshBasicMaterial({map:heatTexture,color:'#092a35',transparent:true,opacity:.6,depthWrite:false}))
+  replayGroup.add(traveller,landing,shadow);replayGroup.visible=false
+  let width=1,height=1,frame=0,disposed=false,selected='',hovered=null,risk={},visibleLinks=true,replayState=null,replayEvents=null,replayLines=[]
+  let interactive=false,dragging=false,distance=400,fitDistance=400,transition=null,previousTime=0
+  const raycaster=new THREE.Raycaster(),pointer=new THREE.Vector2()
+  const reduced=()=>window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  function invalidate(){if(!disposed&&!frame)frame=requestAnimationFrame(render)}
+  function render(time){
+    frame=0;if(disposed)return
+    const dt=Math.min(.05,(time-(previousTime||time))/1000);previousTime=time
+    let moving=false
+    if(transition){
+      const t=Math.min(1,(time-transition.start)/650),e=reduced()?1:1-Math.pow(1-t,3)
+      controls.target.copy(transition.fromTarget).lerp(transition.toTarget,e)
+      camera.position.copy(transition.from).lerp(transition.to,e)
+      if(t>=1||reduced())transition=null;else moving=true
+    }
+    if(!dragging&&!transition&&Math.abs(camera.position.distanceTo(controls.target)-distance)>.015){const length=camera.position.distanceTo(controls.target);camera.position.sub(controls.target).setLength(THREE.MathUtils.lerp(length,distance,reduced()?1:1-Math.exp(-12*(dt||.016)))).add(controls.target);moving=true}
+    if(controls.update())moving=true
+    renderer.render(scene,camera)
+    callbacks.onProject(nodes.map(n=>{const v=normal(n).multiplyScalar(R+2),visible=normal(n).dot(camera.position)>R;v.project(camera);return {...n,left:(v.x+1)*width/2,top:(1-v.y)*height/2,visible:visible&&v.z>-1&&v.z<1}}))
+    if(moving)invalidate();else previousTime=0
+  }
+  function setInteractive(value){interactive=value;controls.enabled=value;renderer.domElement.style.touchAction=value?'none':'pan-y';renderer.domElement.style.cursor=value?'grab':'default';if(!value){dragging=false;distance=camera.position.distanceTo(controls.target)}invalidate()}
+  function fit(resize=false){
+    const previous=fitDistance
+    fitDistance=Math.max(230/(Math.tan(rad(camera.fov/2))*camera.aspect),155/Math.tan(rad(camera.fov/2)))*1.12
+    fitDistance=Math.min(950,fitDistance)
+    distance=resize?THREE.MathUtils.clamp(distance/previous*fitDistance,150,1000):fitDistance
+    invalidate()
+  }
+  function moveCamera(target,nextDistance){const dir=new THREE.Vector3(0,1.35,1).normalize();distance=THREE.MathUtils.clamp(nextDistance,150,1000);transition={from:camera.position.clone(),to:target.clone().addScaledVector(dir,distance),fromTarget:controls.target.clone(),toTarget:target.clone(),start:performance.now()};invalidate()}
+  function reset(){fit();moveCamera(new THREE.Vector3(0,R*.99,0),fitDistance)}
+  function face(direction,nextDistance){moveCamera(direction.clone().multiplyScalar(R*.98),nextDistance)}
+  function style(){
+    const edge=hovered?.kind==='edge'?neighbourhoodMeshes.find(e=>e.edge.id===hovered.id)?.edge:null
+    for(const {node,ball,ring,heat} of nodeMeshes){const active=node.area_id===(hovered?.kind==='node'?hovered.id:selected)||[edge?.a,edge?.b].includes(node.area_id);ball.material.color.set(riskColor(risk[node.area_id]?.total_score));ball.scale.setScalar(active?1.2:1);ring.visible=active;heat.material.color.copy(ball.material.color)}
+    for(const {line} of neighbourhoodMeshes){line.material.color.set(line.userData.id===hovered?.id?'#215fae':'#456a82');line.material.opacity=line.userData.id===hovered?.id?.toString()?1:.5}
+    neighbourhood.visible=visibleLinks&&!replayState;invalidate()
+  }
+  function replay(state){
+    replayState=state;replayGroup.visible=!!state;neighbourhood.visible=visibleLinks&&!state
     if(!state){invalidate();return}
     if(replayEvents!==state.events){
       for(const {line} of replayLines){replayGroup.remove(line);line.geometry.dispose();line.material.dispose()}
       replayEvents=state.events
-      replayLines=replaySegments(state.events,state.chain).flatMap(segment=>{
-        const a=byId.get(segment.from),b=byId.get(segment.to);if(!a||!b)return []
-        // Use the same flight curve for the trace and the moving sphere.
-        const points=Array.from({length:65},(_,i)=>{const p=jumpPoint(a,b,i/64*.76);return new THREE.Vector3(p.x,p.y+1,p.z)})
-        const geometry=new THREE.BufferGeometry().setFromPoints(points)
-        const material=segment.related?new THREE.LineBasicMaterial({color:'#345fc5',transparent:true,opacity:.6}):new THREE.LineDashedMaterial({color:'#647987',dashSize:1.2,gapSize:1,transparent:true,opacity:.55})
-        const line=new THREE.Line(geometry,material);line.computeLineDistances();replayGroup.add(line)
-        return [{...segment,line}]
-      })
+      replayLines=replaySegments(state.events,state.chain).flatMap(s=>{const a=byId.get(s.from),b=byId.get(s.to);if(!a||!b)return []
+        const material=s.related?new THREE.LineBasicMaterial({color:'#2868bb',transparent:true,opacity:.75}):new THREE.LineDashedMaterial({color:'#2459a1',dashSize:1.5,gapSize:1.2,transparent:true,opacity:.5})
+        const line=new THREE.Line(new THREE.BufferGeometry().setFromPoints(tracePoints(a,b)),material);line.computeLineDistances();replayGroup.add(line);return [{...s,line}]})
     }
-    for(const {index,line} of replayLines){line.visible=state.showLinks&&index<=state.index;line.geometry.setDrawRange(0,index===state.index?Math.max(0,Math.ceil(Math.min(1,state.progress/.76)*65)):65)}
-    const target=byId.get(state.events[state.index]?.area_id),previous=byId.get(state.events[state.index-1]?.area_id)
-    traveller.visible=!!target;shadow.visible=!!target;landing.visible=!!target
-    if(target){
-      const p=jumpPoint(previous||target,target,state.progress)
-      traveller.position.set(p.x,p.y+1,p.z);shadow.position.set(p.x,.16,p.z);shadow.scale.setScalar(1+(p.y-3.5)/25);shadow.material.opacity=.35/(1+(p.y-3.5)/12)
-      landing.position.set(target.x,.2,target.z);landing.scale.setScalar(1+p.pulse*2);landing.material.opacity=p.landed?1-p.pulse:.65
-    }
+    for(const {index,line} of replayLines){line.visible=state.showLinks&&index<=state.index;line.material.opacity=index===state.index?1:.62;line.geometry.setDrawRange(0,index===state.index?Math.ceil(Math.min(1,state.progress/.76)*73):73)}
+    const to=byId.get(state.events[state.index]?.area_id),from=byId.get(state.events[state.index-1]?.area_id)||to
+    traveller.visible=landing.visible=shadow.visible=!!to
+    if(to){const p=globeJump(from,to,state.progress);traveller.position.set(p.x,p.y,p.z);orient(shadow,p,R+.35);shadow.scale.setScalar(1+(traveller.position.length()-R-3)/18);orient(landing,to,R+.55);landing.scale.setScalar(1+p.pulse*2);landing.material.opacity=p.landed?1-p.pulse:.8}
     invalidate()
   }
-  for (const edge of layout.edges) {
-    const a = byId.get(edge.a), b = byId.get(edge.b)
-    const curve = new THREE.QuadraticBezierCurve3(new THREE.Vector3(a.x, 1, a.z), new THREE.Vector3((a.x + b.x) / 2, edgeHeight(edge.distance) * 2, (a.z + b.z) / 2), new THREE.Vector3(b.x, 1, b.z))
-    const mesh = new THREE.Mesh(new THREE.TubeGeometry(curve, 36, .27, 6, false), new THREE.MeshBasicMaterial({ color: '#71858f', transparent: true, opacity: .65 }))
-    mesh.userData = { kind: 'edge', id: edge.id }; links.add(mesh); edgeMeshes.push({ edge, mesh }); hitTargets.push(mesh)
-  }
-  let width = 1, height = 1, frame = 0, disposed = false, selected = '', hovered = null, risk = {}, insets = {}, mode = 'inclined', visibleLinks = true
-  const raycaster = new THREE.Raycaster(), pointer = new THREE.Vector2(), position = new THREE.Vector3()
-  function render() {
-    frame = 0
-    if (disposed) return
-    renderer.render(scene, camera)
-    callbacks.onProject(nodeMeshes.map(({ node }) => {
-      position.set(node.x, 4, node.z).project(camera)
-      return { ...node, left: (position.x + 1) * width / 2, top: (1 - position.y) * height / 2, visible: position.z > -1 && position.z < 1 }
-    }))
-  }
-  function invalidate() { if (!disposed && !frame) frame = requestAnimationFrame(render) }
-  function fit() {
-    camera.updateMatrixWorld()
-    const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0), up = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1)
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
-    for (const x of [-89, 89]) for (const z of [-89, 89]) for (const y of [0, 30]) {
-      const v = new THREE.Vector3(x, y, z), sx = v.dot(right), sy = v.dot(up)
-      minX = Math.min(minX, sx); maxX = Math.max(maxX, sx); minY = Math.min(minY, sy); maxY = Math.max(maxY, sy)
-    }
-    const left = insets.left || 24, top = insets.top || 180, r = insets.right || 24, bottom = insets.bottom || 260
-    const safeW = Math.max(180, width - left - r), safeH = Math.max(180, height - top - bottom)
-    const fullH = Math.max((maxY - minY) * height / safeH, (maxX - minX) * height / safeW) * 1.12
-    const hh = fullH / 2, hw = hh * width / height
-    const shiftX = -(left - r) / width * hw, shiftY = (top - bottom) / height * hh
-    camera.left = -hw + shiftX; camera.right = hw + shiftX; camera.top = hh + shiftY; camera.bottom = -hh + shiftY
-    camera.updateProjectionMatrix(); invalidate()
-  }
-  function reset(nextMode = mode) {
-    mode = nextMode; controls.target.set(0, 0, 0); camera.position.set(mode === 'top' ? 0 : 120, mode === 'top' ? 300 : 230, mode === 'top' ? .01 : 180); camera.zoom = 1
-    controls.enableRotate = mode !== 'top'; controls.minPolarAngle = mode === 'top' ? 0 : .3
-    camera.lookAt(controls.target); controls.update(); fit()
-  }
-  function updateStyle() {
-    const hoveredEdge = hovered?.kind === 'edge' ? edgeMeshes.find((e) => e.edge.id === hovered.id)?.edge : null
-    const focusId = hovered?.kind === 'node' ? hovered.id : selected
-    for (const { node, point, ring, heat } of nodeMeshes) {
-      const r = risk[node.area_id], focused = node.area_id === focusId || [hoveredEdge?.a, hoveredEdge?.b].includes(node.area_id)
-      point.material.color.set(riskColor(r?.total_score)); point.scale.setScalar(focused ? 1.22 : 1)
-      heat.material.color.set(riskColor(r?.total_score)); heat.material.opacity = r ? .85 : .12
-      ring.visible = node.area_id === selected || focused
-    }
-    for (const { edge, mesh } of edgeMeshes) {
-      const active = hoveredEdge ? edge.id === hoveredEdge.id : edge.a === focusId || edge.b === focusId
-      mesh.material.color.set(active ? '#345fc5' : '#71858f'); mesh.material.opacity = active ? .95 : focusId ? .56 : .7
-    }
-    links.visible = visibleLinks&&!replayEnabled; invalidate()
-  }
-  function setHover(hit, event) {
-    if (hovered?.id !== hit?.id || hovered?.kind !== hit?.kind) { hovered = hit; updateStyle() }
-    callbacks.onHover(hit, event)
-    renderer.domElement.style.cursor = hit ? 'pointer' : 'grab'
-  }
-  function hitAt(event) {
-    const rect = renderer.domElement.getBoundingClientRect()
-    pointer.set((event.clientX - rect.left) / rect.width * 2 - 1, -(event.clientY - rect.top) / rect.height * 2 + 1)
-    raycaster.setFromCamera(pointer, camera)
-    return raycaster.intersectObjects(hitTargets.filter((m) => m.parent !== links || visibleLinks&&!replayEnabled), false)[0]?.object.userData || null
-  }
-  let down = null, moving = false, multiTouch = false
-  const activePointers = new Set()
-  const onDown = (e) => { activePointers.add(e.pointerId); if(activePointers.size>1)multiTouch=true; down = { x: e.clientX, y: e.clientY }; moving = false; setHover(null, e) }
-  const onMove = (e) => {
-    if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 5) moving = true
-    if (down) return
-    setHover(hitAt(e), e)
-  }
-  const onUp = (e) => { if (down && !moving && !multiTouch && e.type!=='pointercancel' && Math.hypot(e.clientX - down.x, e.clientY - down.y) <= 5) { const hit = hitAt(e); if (hit?.kind === 'node') callbacks.onSelect(hit.id) } activePointers.delete(e.pointerId); if(!activePointers.size){down=null;multiTouch=false} }
-  const onLeave = (e) => { setHover(null, e) }
-  const onLost = (e) => { e.preventDefault(); callbacks.onFailure() }
-  renderer.domElement.addEventListener('pointerdown', onDown)
-  renderer.domElement.addEventListener('pointermove', onMove)
-  renderer.domElement.addEventListener('pointerleave', onLeave)
-  renderer.domElement.addEventListener('webglcontextlost', onLost)
-  window.addEventListener('pointerup', onUp)
-  window.addEventListener('pointercancel', onUp)
-  controls.addEventListener('change', invalidate)
-  controls.addEventListener('start', () => {callbacks.onHover(null);callbacks.onInteract?.()})
-  const observer = new ResizeObserver(() => {
-    width = Math.max(1, host.clientWidth); height = Math.max(1, host.clientHeight)
-    renderer.setSize(width, height); fit()
-  })
-  observer.observe(host); reset()
+  function hit(event){const rect=renderer.domElement.getBoundingClientRect();pointer.set((event.clientX-rect.left)/rect.width*2-1,-(event.clientY-rect.top)/rect.height*2+1);raycaster.setFromCamera(pointer,camera);const hit=raycaster.intersectObjects(hitTargets.filter(o=>o.userData.kind!=='edge'||neighbourhood.visible),false)[0];return hit?.object.userData?.kind?hit.object.userData:null}
+  function hover(hit,event){hovered=hit;callbacks.onHover(hit,event);style()}
+  let down=null,moved=false;const activePointers=new Set()
+  const onDown=e=>{if(!interactive)return;activePointers.add(e.pointerId);down={x:e.clientX,y:e.clientY};moved=activePointers.size>1}
+  const onMove=e=>{if(down){if(Math.hypot(e.clientX-down.x,e.clientY-down.y)>5)moved=true;return}hover(hit(e),e)}
+  const onUp=e=>{if(down&&!moved&&activePointers.size===1&&e.type!=='pointercancel'){const h=hit(e);if(h?.kind==='node')callbacks.onSelect(h.id)}activePointers.delete(e.pointerId);if(!activePointers.size)down=null}
+  const onLeave=e=>hover(null,e)
+  const onWheel=e=>{if(!interactive)return;e.preventDefault();e.stopImmediatePropagation();callbacks.onInteract?.();transition=null;distance=wheelDistance(distance,e.deltaY*(e.deltaMode===1?16:e.deltaMode===2?height:1),150,1000);invalidate()}
+  const onStart=()=>{dragging=true;transition=null;callbacks.onHover(null);callbacks.onInteract?.()}
+  const onEnd=()=>{dragging=false;distance=camera.position.distanceTo(controls.target);invalidate()}
+  const onChange=()=>{if(dragging)distance=camera.position.distanceTo(controls.target);invalidate()}
+  const onLost=e=>{e.preventDefault();callbacks.onFailure()}
+  renderer.domElement.addEventListener('wheel',onWheel,{capture:true,passive:false})
+  renderer.domElement.addEventListener('pointerdown',onDown);renderer.domElement.addEventListener('pointermove',onMove);renderer.domElement.addEventListener('pointerleave',onLeave);renderer.domElement.addEventListener('webglcontextlost',onLost)
+  window.addEventListener('pointerup',onUp);window.addEventListener('pointercancel',onUp)
+  controls.addEventListener('start',onStart);controls.addEventListener('end',onEnd);controls.addEventListener('change',onChange)
+  const observer=new ResizeObserver(()=>{width=Math.max(1,host.clientWidth);height=Math.max(1,host.clientHeight);renderer.setSize(width,height);camera.aspect=width/height;camera.updateProjectionMatrix();fit(true)})
+  observer.observe(host);controls.update();setInteractive(false);fit();camera.position.sub(controls.target).setLength(distance).add(controls.target)
   return {
-    replay:replayFrame,
-    update(next) {
-      risk = next.risk; selected = next.selected; insets = next.insets
-      buildings.visible = next.buildings; visibleLinks = next.links
-      if (mode !== next.mode) reset(next.mode)
-      fit(); updateStyle()
-    },
-    reset: () => reset(),
-    zoom(factor) { camera.zoom = THREE.MathUtils.clamp(camera.zoom * factor, .6, 3.5); camera.updateProjectionMatrix(); invalidate() },
-    pan(x, z) { const offset = new THREE.Vector3(x, 0, z); camera.position.add(offset); controls.target.add(offset); controls.update(); invalidate() },
-    focus(id) {
-      const n = byId.get(id); if (!n) return
-      const offset = new THREE.Vector3(n.x * .45, 0, n.z * .45).sub(controls.target)
-      camera.position.add(offset); controls.target.add(offset); controls.update(); invalidate()
-    },
-    hover(id, event) { setHover(id ? { kind: 'node', id } : null, event) },
-    dispose() {
-      disposed = true; cancelAnimationFrame(frame); observer.disconnect(); controls.dispose()
-      window.removeEventListener('pointerup', onUp)
-      window.removeEventListener('pointercancel', onUp)
-      renderer.domElement.removeEventListener('pointerdown', onDown); renderer.domElement.removeEventListener('pointermove', onMove); renderer.domElement.removeEventListener('pointerleave', onLeave); renderer.domElement.removeEventListener('webglcontextlost', onLost)
-      const geometries = new Set(), materials = new Set()
-      scene.traverse((o) => { if(o.isInstancedMesh)o.dispose(); if (o.geometry) geometries.add(o.geometry); if (o.material) materials.add(o.material) })
-      geometries.forEach((g) => g.dispose()); materials.forEach((m) => m.dispose()); heatTexture.dispose();texture.dispose()
-      renderer.dispose(); renderer.domElement.remove()
-    },
+    replay,setInteractive,reset,
+    update(next){risk=next.risk;selected=next.selected;visibleLinks=next.links;details.visible=next.buildings;style()},
+    zoom(factor){transition=null;callbacks.onInteract?.();distance=THREE.MathUtils.clamp(distance/factor,150,1000);invalidate()},
+    pan(x,z){const s=new THREE.Spherical().setFromVector3(camera.position.clone().sub(controls.target));s.theta+=x*.008;s.phi=THREE.MathUtils.clamp(s.phi+z*.008,.15,Math.PI-.15);camera.position.setFromSpherical(s).add(controls.target);transition=null;controls.update();invalidate()},
+    focus(id){const n=byId.get(id);if(n)face(normal(n),Math.min(fitDistance,230))},
+    focusChain(){const chainNodes=[...new Set(replayState?.events.map(e=>e.area_id))].map(id=>byId.get(id)).filter(Boolean);if(!chainNodes.length){reset();return}const center=chainNodes.reduce((v,n)=>v.add(normal(n)),new THREE.Vector3()).normalize();const spread=Math.max(...chainNodes.map(n=>angularDistance(center,n)));face(center,Math.max(170,fitDistance*Math.min(1,.42+spread/.95)))},
+    hover(id,event){hover(id?{kind:'node',id}:null,event)},
+    dispose(){disposed=true;cancelAnimationFrame(frame);observer.disconnect();controls.dispose();window.removeEventListener('pointerup',onUp);window.removeEventListener('pointercancel',onUp);renderer.domElement.removeEventListener('wheel',onWheel,true);renderer.domElement.removeEventListener('pointerdown',onDown);renderer.domElement.removeEventListener('pointermove',onMove);renderer.domElement.removeEventListener('pointerleave',onLeave);renderer.domElement.removeEventListener('webglcontextlost',onLost);const geometries=new Set(),materials=new Set();scene.traverse(o=>{if(o.isInstancedMesh)o.dispose();if(o.geometry)geometries.add(o.geometry);if(o.material)(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>materials.add(m))});geometries.forEach(g=>g.dispose());materials.forEach(m=>Array.isArray(m)?m.forEach(v=>v.dispose()):m.dispose());facadeTexture.dispose();Object.values(textures).forEach(t=>t.dispose());heatTexture.dispose();renderer.dispose();renderer.domElement.remove()}
   }
 }
