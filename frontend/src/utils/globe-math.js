@@ -17,13 +17,16 @@ export function angularDistance(a,b) {
   const la=Math.hypot(a.x,a.y,a.z),lb=Math.hypot(b.x,b.y,b.z)
   return Math.acos(Math.max(-1,Math.min(1,(a.x*b.x+a.y*b.y+a.z*b.z)/(la*lb))))
 }
-export function globeJump(a,b,progress) {
-  const t=Math.max(0,Math.min(1,progress)),p=Math.min(1,t/.76),ease=p*p*(3-2*p)
+export function globeJump(a,b,progress,clearance=0) {
+  const t=Math.max(0,Math.min(1,progress)),p=Math.min(1,t/.76)
+  // Rise over the open landing plaza before crossing nearby tall buildings;
+  // reverse that movement on approach, without moving the destination.
+  const travel=Math.max(0,Math.min(1,(p-.12)/.76)),ease=travel**3*(travel*(travel*6-15)+10)
   const angle=angularDistance(a,b),sin=Math.sin(angle)
   let x,y,z
   if(angle<1e-5){x=b.x;y=b.y;z=b.z}
   else {const u=Math.sin((1-ease)*angle)/sin,v=Math.sin(ease*angle)/sin;x=a.x*u+b.x*v;y=a.y*u+b.y*v;z=a.z*u+b.z*v}
-  const lift=t<.76?Math.pow(Math.max(0,Math.sin(p*Math.PI)),.7)*(angle<1e-5?7:Math.min(65,24+angle*60)):Math.sin((t-.76)/.24*Math.PI)*1.5
+  const lift=t<.76?Math.pow(Math.max(0,Math.sin(p*Math.PI)),.45)*(angle<1e-5?7:Math.max(Math.min(65,24+angle*60),clearance*1.3+14)):Math.sin((t-.76)/.24*Math.PI)*1.5
   const radius=GLOBE_RADIUS+3+lift,scale=radius/Math.hypot(x,y,z)
   return {x:x*scale,y:y*scale,z:z*scale,landed:t>=.76,pulse:t>=.76?(t-.76)/.24:0}
 }

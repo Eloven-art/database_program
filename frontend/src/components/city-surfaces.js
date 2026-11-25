@@ -1,3 +1,4 @@
+import {landmarkSites,anchoredRiver} from '@/utils/area-landmarks'
 // Fictional city cartography. Every footprint, road and tree shares the curved surface.
 export const CITY_ANGLE_SCALE=.4
 export const cityWarp=(lon,lat)=>[lon+1.8*Math.sin(lat*.065+lon*.035)+.6*Math.sin(lat*.19),lat+1.7*Math.sin(lon*.07-lat*.04)]
@@ -7,12 +8,13 @@ const ys=[-42,-34,-27,-20,-13,-6,2,10,18,26,34,42]
 export const cityRoadLatitudes=ys
 export const riverLongitude=lat=>-17+4*Math.sin(lat*.075)+1.8*Math.sin(lat*.21)
 export function createCitySurfaces(nodes){
+  const sites=landmarkSites(nodes),riverLongitude=anchoredRiver(sites,cityWarp)
   const width=window.innerWidth<700?2048:4096,height=width/2,canvas=()=>{const c=document.createElement('canvas');c.width=width;c.height=height;return c}
   const color=canvas(),detail=canvas(),relief=canvas(),ctx=color.getContext('2d'),ink=detail.getContext('2d')
   const xy=(lon,lat)=>{const [l,t]=cityWarp(lon,lat);return [(l+60)/120*width,(42-t)/84*height]}
   ctx.fillStyle='#c8d6ae';ctx.fillRect(0,0,width,height)
   const blocks=[],buildings=[],trees=[],cars=[]
-  const clear=(lon,lat,r=3)=>{const [l,t]=cityWarp(lon,lat);return nodes.some(n=>Math.hypot((n.cityLon-l)*Math.cos(lat*Math.PI/180),n.cityLat-t)<r)}
+  const clear=(lon,lat,r=3)=>{const [l,t]=cityWarp(lon,lat);return sites.some(s=>Math.hypot((s.node.cityLon-l)*Math.cos(lat*Math.PI/180),s.node.cityLat-t)<s.radius+.7)||nodes.some(n=>Math.hypot((n.cityLon-l)*Math.cos(lat*Math.PI/180),n.cityLat-t)<r)}
   const diagonal=lon=>lon*.48+5*Math.sin(lon*.06)
   const park=(lon,lat)=>((lon+29)**2/90+(lat-15)**2/55<1)||((lon-16)**2/95+(lat+24)**2/65<1)||((lon-35)**2/100+(lat-27)**2/60<1)
   for(let i=0;i<xs.length-1;i++)for(let j=0;j<ys.length-1;j++){
@@ -48,9 +50,17 @@ export function createCitySurfaces(nodes){
   const avenue=Array.from({length:61},(_,i)=>{const l=-60+i*2;return [l,diagonal(l)]});path(avenue,'#ede9dd',43);path(avenue,'#9ca7a6',25);path(avenue,'#f5ebc7',1.5,[13,10])
   for(let lat=-39;lat<=39;lat+=1.8)for(const side of [-1,1]){const lon=riverLongitude(lat)+side*(2.4+.4*Math.sin(lat));if(!clear(lon,lat))trees.push({lon,lat,h:4+Math.abs(Math.round(lat))%4,r:1.3})}
   for(let i=0;i<xs.length;i+=2)for(let j=1;j<ys.length-1;j+=3){const lon=xs[i]+.16,lat=ys[j]+2;if(!clear(lon,lat,2))cars.push({lon,lat,shade:i+j})}
+  // Replace the generic street fabric at each regional landmark, with soft irregular lots.
+  for(const site of sites){
+    ctx.beginPath()
+    for(let i=0;i<=20;i++){const t=i/20*Math.PI*2,r=site.radius*(1+.06*Math.sin(t*3));const x=(site.node.cityLon+Math.cos(t)*r+60)/120*width,y=(42-site.node.cityLat-Math.sin(t)*r)/84*height;i?ctx.lineTo(x,y):ctx.moveTo(x,y)}
+    ctx.fillStyle=site.profile.ground;ctx.globalAlpha=.94;ctx.fill();ctx.globalAlpha=1
+  }
+  // The river is anchored to the riverside district and remains continuous across the map.
+  path(river,'#91b27c',145);path(river,'#e1ddbf',93);path(river,'#6bb4c5',79);path(river,'#8ac9d5',48)
   // Low-contrast parcel detail can be toggled independently of the road bed.
   ink.strokeStyle='#8e9d8190';ink.lineWidth=1
   for(const b of blocks){const [x,y]=xy(b.lon,b.lat);ink.strokeRect(x-30,y-25,60,50)}
   const bump=relief.getContext('2d');bump.fillStyle='#808080';bump.fillRect(0,0,width,height)
-  return {color,detail,relief,buildings,trees:trees.filter(t=>{const [l,p]=cityWarp(t.lon,t.lat);return Math.abs(l)<59&&Math.abs(p)<41}),cars}
+  return {color,detail,relief,buildings,sites,riverLongitude,trees:trees.filter(t=>{const [l,p]=cityWarp(t.lon,t.lat);return Math.abs(l)<59&&Math.abs(p)<41}),cars}
 }

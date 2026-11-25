@@ -4,6 +4,7 @@
       <button class="interaction-button" :aria-pressed="interactive" @click="setInteractive(!interactive)">{{ interactive?'退出操作 · Esc':'操作地图' }}</button>
       <button aria-label="缩小地图" @click="zoom(1/1.2)"><el-icon><ZoomOut/></el-icon></button><button aria-label="放大地图" @click="zoom(1.2)"><el-icon><ZoomIn/></el-icon></button>
       <button @click="reset">查看全貌</button><button v-if="replayEnabled" @click="scene?.focusChain()">聚焦当前链</button><button v-else :disabled="!selected" @click="focusArea(selected)">区域近景</button>
+      <button :aria-pressed="showLabels" @click="showLabels=!showLabels">地名</button>
       <button :aria-pressed="fallback" @click="toggleFlat">{{fallback?'返回三维':'二维回退'}}</button>
       <span>{{interactive?(fallback?'拖动平移 · 滚轮缩放':'拖动旋转 · 滚轮缩放'):'上下滑动页面 · 开启操作后缩放地图'}}</span>
     </div>
@@ -14,6 +15,7 @@
       <rect x="-1000" y="-1000" width="2000" height="2000" fill="#e9ede7" />
       <image :href="mapTextureUrl" x="-360" y="-360" width="720" height="720" />
       <g v-if="showBuildings" fill="#c3cec1"><rect v-for="(b,i) in layout.buildings" :key="i" :x="b.x-b.w/2" :y="b.z-b.d/2" :width="b.w" :height="b.d" /></g>
+      <g v-for="n in layout.nodes" :key="`landmark-${n.area_id}`" :transform="`translate(${n.x} ${n.z})`"><AreaLandmarkSymbol :area="n"/></g>
       <g v-if="showLinks && !replayEnabled" fill="none" stroke-width=".6"><path v-for="e in layout.edges" :key="e.id" :d="flatPath(e)" :stroke="edgeActive(e) ? '#345fc5' : '#80949c'" :opacity="edgeActive(e) ? 1 : .5" @pointerenter="edgeHover(e,$event)" @pointerleave="clearHover" /></g>
       <g v-for="n in layout.nodes" :key="n.area_id" :transform="`translate(${n.x} ${n.z})`" :style="{color:riskColor(risk[n.area_id]?.total_score)}" @pointerenter="nodeHover(n.area_id,$event)" @pointerleave="clearHover">
         <circle v-if="risk[n.area_id]" r="11" fill="currentColor" mask="url(#street-heat-mask)" />
@@ -23,13 +25,14 @@
       <g v-if="flatReplay && flatReplay.showLinks" fill="none" stroke="#345fc5" stroke-width=".6"><path v-for="(line,i) in flatReplayLines" :key="i" :d="replayPath(line)" :stroke-dasharray="line.related?undefined:'1.2 1'" opacity=".6" /></g>
       <g v-if="flatTraveller" style="color:#345fc5"><ellipse :cx="flatTraveller.x" :cy="flatTraveller.z" rx="4" ry="1.5" fill="#334736" opacity=".2"/><circle :cx="flatTraveller.x" :cy="flatTraveller.z-(flatTraveller.y-3.5)*.5" r="4" fill="currentColor"/><circle :cx="flatTraveller.x" :cy="flatTraveller.z-(flatTraveller.y-3.5)*.5" r="4" fill="url(#street-sphere)"/><circle v-if="flatTraveller.landed" :cx="flatTraveller.x" :cy="flatTraveller.z" :r="3.5+flatTraveller.pulse*7" fill="none" stroke="#345fc5" :opacity="1-flatTraveller.pulse" stroke-width=".5"/></g>
     </svg>
-    <div class="map-labels">
+    <div v-show="showLabels" class="map-labels">
       <button v-for="n in labels" :key="n.area_id" class="map-label" :class="{'is-selected':selected===n.area_id}" :style="{left:`${n.left}px`,top:`${n.top}px`}" :aria-pressed="selected===n.area_id" :aria-label="`${n.area_name}，${risk[n.area_id] ? risk[n.area_id].total_score==null ? (risk[n.area_id].status_label || '未评分') : `${fixed(risk[n.area_id].total_score)}分` : '当前时段无研判记录'}`" @click="emit('select',n.area_id)" @pointerenter="nodeHover(n.area_id,$event)" @pointerleave="clearHover" @focus="nodeHover(n.area_id,$event)" @blur="clearHover">{{ n.area_name }}<b v-if="selected===n.area_id && risk[n.area_id]">{{ risk[n.area_id].total_score==null?'未评分':fixed(risk[n.area_id].total_score) }}</b></button>
     </div>
     <div v-if="hover" class="map-point-tip" role="tooltip" :style="tipStyle">
-      <template v-if="hover.kind==='node'"><strong>{{ hoverNode?.area_name }}</strong><template v-if="hoverRisk"><span>{{ hoverRisk.total_score==null ? (hoverRisk.status_label || '未评分') : `${hoverRisk.risk_level_name}风险 · ${fixed(hoverRisk.total_score)} 分` }}</span><span>近三小时消费 {{ hoverRisk.sample_size }} 条<span v-if="hoverRisk.total_score!=null"> · 命中 {{ hoverRisk.hit_cnt }} 项</span></span></template><span v-else>当前时段无研判记录</span></template>
+      <template v-if="hover.kind==='node'"><strong>{{ hoverNode?.area_name }}</strong><span>{{areaLandmark(hoverNode).short}} · 教学场景</span><template v-if="hoverRisk"><span>{{ hoverRisk.total_score==null ? (hoverRisk.status_label || '未评分') : `${hoverRisk.risk_level_name}风险 · ${fixed(hoverRisk.total_score)} 分` }}</span><span>近三小时消费 {{ hoverRisk.sample_size }} 条<span v-if="hoverRisk.total_score!=null"> · 命中 {{ hoverRisk.hit_cnt }} 项</span></span></template><span v-else>当前时段无研判记录</span></template>
       <template v-else><strong>{{ hoverEdgeNames }}</strong><span>空间邻近示意 · 无方向连接</span></template>
     </div>
+    <div v-if="displayArea" class="area-scene-note" aria-live="polite"><span>{{replayEnabled?scenePhase:'当前区域'}} · 区域级示意</span><strong>{{displayArea.area_name}}</strong><p>{{areaLandmark(displayArea).short}}</p></div>
     <div class="scene-status"><span>{{ fallback ? '二维区域图' : '城市弧面' }}</span><span>虚构城市 · 街区及位置均为教学示意</span></div>
     <div v-if="fallback" class="fallback-note"  role="status">{{ fallbackReason }}<button @click="start">重试三维</button></div>
     <div v-if="starting" class="scene-loading" role="status">正在渲染立体城市街区…</div>
@@ -44,9 +47,12 @@ import {mapTextureUrl} from '@/utils/map-cartography'
 import {jumpPoint,replaySegments} from '@/utils/clue-replay'
 import { fixed } from '@/utils/format'
 import {ZoomIn,ZoomOut} from '@element-plus/icons-vue'
+import {areaLandmark} from '@/utils/area-landmarks'
+import AreaLandmarkSymbol from './AreaLandmarkSymbol.vue'
 const props=defineProps({areas:{type:Array,required:true},risk:{type:Object,required:true},selected:{type:String,default:''},showBuildings:{type:Boolean,default:true},showLinks:{type:Boolean,default:true},mode:{type:String,default:'inclined'},insets:{type:Object,default:()=>({})},replayEnabled:{type:Boolean,default:false}})
 const emit=defineEmits(['select','mode','interact'])
-const interactive=ref(false),viewport=ref(null)
+const interactive=ref(false),viewport=ref(null),showLabels=ref(true),sceneAreaId=ref(''),scenePhase=ref('')
+const displayArea=computed(()=>props.areas.find(a=>a.area_id===(props.replayEnabled?sceneAreaId.value:props.selected)))
 const root=ref(null),host=ref(null),projected=ref([]),fallback=ref(false),starting=ref(true),hover=ref(null),tipPosition=ref({x:0,y:0})
 const fallbackReason=ref('当前设备暂无法显示三维，已保留二维地图与全部业务操作。')
 const layout=computed(()=>streetLayout(props.areas))
@@ -54,7 +60,7 @@ const size=ref({w:1000,h:700}),flatCamera=ref({x:0,z:0,zoom:1})
 let scene=null,observer=null,disposed=false,generation=0
 let latestReplay=null
 const flatReplay=shallowRef(null)
-function setReplayFrame(state){latestReplay=state;if(fallback.value)flatReplay.value=state;else scene?.replay(state)}
+function setReplayFrame(state){latestReplay=state;sceneAreaId.value=state?.events[state.index]?.area_id||'';scenePhase.value=state?.progress<.76?'下一落点':'当前落点';if(fallback.value)flatReplay.value=state;else scene?.replay(state)}
 const flatReplayLines=computed(()=>flatReplay.value?replaySegments(flatReplay.value.events,flatReplay.value.chain).filter(e=>e.index<=flatReplay.value.index):[])
 const flatTraveller=computed(()=>{const s=flatReplay.value;if(!s)return null;const b=layout.value.nodes.find(n=>n.area_id===s.events[s.index]?.area_id),a=layout.value.nodes.find(n=>n.area_id===s.events[s.index-1]?.area_id);return b?jumpPoint(a||b,b,s.progress):null})
 function replayPath(line){const a=layout.value.nodes.find(n=>n.area_id===line.from),b=layout.value.nodes.find(n=>n.area_id===line.to);return a&&b?`M ${a.x} ${a.z} Q ${(a.x+b.x)/2} ${(a.z+b.z)/2-edgeHeight(Math.hypot(a.x-b.x,a.z-b.z))*.45} ${b.x} ${b.z}`:''}
@@ -73,7 +79,7 @@ const labels=computed(()=>{
   for(const n of candidates){
     const labelW=n.area_name.length*12+20+(n.area_id===props.selected ? 40 : 0)
     if(!n.visible)continue
-    for(const offset of [12,-33,35]){
+    for(const offset of (n.area_id===props.selected?[42,-48,12]:[12,-33,35])){
       const box={left:n.left-labelW/2,right:n.left+labelW/2,top:n.top+offset,bottom:n.top+offset+25}
       if(box.left<5 || box.right>w-5 || box.top<5 || box.bottom>h-8)continue
       if(placed.some((p)=>box.left<p.box.right+4 && box.right>p.box.left-4 && box.top<p.box.bottom+3 && box.bottom>p.box.top-3))continue
@@ -156,4 +162,5 @@ defineExpose({reset,zoom,focusArea,toggleFlat,setReplayFrame})
 <style scoped>
 .street-map{position:relative;display:flex;flex-direction:column;background:#132631;border-radius:12px;overflow:hidden;min-width:0;outline-offset:-3px}.globe-controls{display:flex;align-items:center;gap:5px;flex-wrap:wrap;padding:10px 12px;background:#19343f;color:#e5f0f4;flex-shrink:0}.globe-controls button{border:0;background:#254653;border-radius:5px;color:inherit;font:12px var(--font-ui);padding:7px 9px;cursor:pointer;min-height:32px;display:inline-flex;align-items:center;gap:4px}.globe-controls button:hover{background:#365d6c}.globe-controls button:disabled{opacity:.5}.globe-controls .interaction-button{background:#d4e9ef;color:#16333f}.globe-controls .interaction-button[aria-pressed=true]{background:#a5dcf1;color:#112e3b}.globe-controls>span{font-size:10px;color:#bdd0d8;margin-left:auto}.scene-viewport{position:relative;flex:1;min-height:0;overflow:hidden}.scene-host,.flat-map,.map-labels{position:absolute;inset:0;width:100%;height:100%}.scene-host :deep(canvas){display:block}.flat-map{touch-action:pan-y}.interacting .flat-map{touch-action:none;cursor:grab}.map-labels{pointer-events:none;overflow:hidden}.map-label{position:absolute;transform:translateX(-50%);pointer-events:auto;white-space:nowrap;background:#17333feb;border:1px solid #90b7c24d;border-radius:4px;padding:3px 7px;color:#f0f6f7;font:12px/1.5 var(--font-ui);cursor:pointer}.map-label:hover,.map-label.is-selected{background:#e2f3f7;color:#15394c}.map-label b{margin-left:7px;font-family:var(--font-data);font-weight:500}.map-point-tip{position:absolute;z-index:5;pointer-events:none;display:flex;flex-direction:column;gap:5px;max-width:250px;background:#fff;padding:12px 16px;border-radius:10px;box-shadow:0 5px 20px #0b17251a;font-size:12px;line-height:1.6}.map-point-tip strong{font-size:13px;font-weight:500}.map-point-tip span{color:var(--text-secondary)}.scene-status{position:absolute;left:14px;bottom:12px;display:flex;gap:10px;pointer-events:none;color:#d2e3ea;font-size:10px;line-height:1.7;flex-wrap:wrap}.scene-status span{background:#132e3bd9;padding:2px 6px;border-radius:3px}.fallback-note{position:absolute;left:12px;top:12px;right:12px;width:fit-content;max-width:calc(100% - 24px);padding:8px 12px;background:#fff;font-size:11px;line-height:1.8;border-radius:8px}.fallback-note button{background:transparent;border:0;color:var(--accent-ink);cursor:pointer;padding:4px 8px;font:inherit}.scene-loading{position:absolute;left:50%;top:45%;transform:translate(-50%,-50%);background:#fff;padding:12px 18px;border-radius:10px;font-size:13px;white-space:nowrap}
 @media(max-width:600px){.map-label{font-size:10px;padding:2px 4px}.globe-controls{gap:4px;padding:8px}.globe-controls button{padding:6px 8px;font-size:11px}.globe-controls>span{margin-left:0;flex-basis:100%;line-height:1.6}.scene-status{gap:4px;left:8px;bottom:8px}.map-point-tip{max-width:220px}}
+.area-scene-note{position:absolute;left:14px;bottom:45px;max-width:260px;padding:10px 13px;background:#f6faf3f2;border-radius:8px;color:#244652;pointer-events:none;box-shadow:0 3px 10px #263a3e14}.area-scene-note>span{display:block;font-size:10px;color:#526d74}.area-scene-note strong{display:block;font-weight:500;font-size:15px;margin-top:4px}.area-scene-note p{font-size:11px;margin:4px 0 0;line-height:1.7}@media(max-width:600px){.area-scene-note{bottom:42px;left:8px;max-width:220px;padding:8px 10px}.area-scene-note strong{font-size:13px}.area-scene-note p{font-size:10px}}
 </style>

@@ -3,7 +3,8 @@ import {OrbitControls} from 'three/addons/controls/OrbitControls.js'
 import {riskColor} from '@/utils/street-map'
 import {replaySegments} from '@/utils/clue-replay'
 import {GLOBE_RADIUS as R,globeLayout,globeJump,angularDistance,wheelDistance} from '@/utils/globe-math'
-import {createCitySurfaces,CITY_BOUNDS,riverLongitude,cityRoadLatitudes,CITY_ANGLE_SCALE,cityWarp} from './city-surfaces'
+import {createCitySurfaces,CITY_BOUNDS,cityRoadLatitudes,CITY_ANGLE_SCALE,cityWarp} from './city-surfaces'
+import {createAreaLandmarks} from './area-landmark-scene'
 
 export function createStreetScene(host,layout,callbacks){
   const renderer=new THREE.WebGLRenderer({antialias:true})
@@ -22,7 +23,7 @@ export function createStreetScene(host,layout,callbacks){
   const sun=new THREE.DirectionalLight('#fff5dc',2.0);sun.position.set(-330,R+500,500);sun.target.position.set(0,R*.97,0);sun.castShadow=true;sun.shadow.mapSize.set(1024,1024);Object.assign(sun.shadow.camera,{left:-350,right:350,top:350,bottom:-350,near:1,far:1400});sun.shadow.bias=-.001;scene.add(sun,sun.target)
   const fill=new THREE.DirectionalLight('#9acbea',1.2);fill.position.set(180,R+180,-100);scene.add(fill)
   const nodes=globeLayout(layout.nodes),byId=new Map(nodes.map(n=>[n.area_id,n])),nodeMeshes=[]
-  const surfaces=createCitySurfaces(nodes),textures=Object.fromEntries(['color','relief','detail'].map(k=>[k,new THREE.CanvasTexture(surfaces[k])]))
+  const surfaces=createCitySurfaces(nodes),riverLongitude=surfaces.riverLongitude,textures=Object.fromEntries(['color','relief','detail'].map(k=>[k,new THREE.CanvasTexture(surfaces[k])]))
   textures.color.colorSpace=THREE.SRGBColorSpace;textures.detail.colorSpace=THREE.SRGBColorSpace
   Object.values(textures).forEach(t=>{t.anisotropy=Math.min(8,renderer.capabilities.getMaxAnisotropy())})
   const rad=THREE.MathUtils.degToRad
@@ -61,6 +62,9 @@ export function createStreetScene(host,layout,callbacks){
   crowns.castShadow=true;details.add(trunks,crowns)
   const cars=new THREE.InstancedMesh(new THREE.BoxGeometry(1,1,1),new THREE.MeshStandardMaterial({roughness:.4}),surfaces.cars.length)
   surfaces.cars.forEach((c,i)=>{dummy.quaternion.copy(basis(c.lon,c.lat));dummy.position.copy(point(c.lon,c.lat,R+.65));dummy.scale.set(1.15,1.1,2.5);dummy.updateMatrix();cars.setMatrixAt(i,dummy.matrix);cars.setColorAt(i,new THREE.Color(['#e5e4db','#718d9b','#a8b1ad'][c.shade%3]))});cars.castShadow=true;details.add(cars)
+  const landmarks=createAreaLandmarks(surfaces.sites,{rawPoint,radius:R,facadeTexture});scene.add(landmarks.group);hitTargets.push(...landmarks.hits)
+  const clearance=Math.max(landmarks.maximumHeight,...surfaces.buildings.map(b=>b.h))
+  const sceneJump=(a,b,p)=>globeJump(a,b,p,clearance)
   function ribbon(samples,material,radius=R+.08){
     const positions=[],indices=[]
     samples.forEach(([left,right],i)=>{for(const [lon,lat] of [left,right]){const p=point(lon,lat,radius);positions.push(p.x,p.y,p.z)}if(i){const a=(i-1)*2;indices.push(a,a+1,a+2,a+1,a+3,a+2)}})
@@ -89,7 +93,7 @@ export function createStreetScene(host,layout,callbacks){
   }
   const neighbourhood=new THREE.Group(),replayGroup=new THREE.Group();scene.add(neighbourhood,replayGroup)
   const neighbourhoodMeshes=[]
-  const tracePoints=(a,b)=>Array.from({length:73},(_,i)=>{const p=globeJump(a,b,i/72*.76);return new THREE.Vector3(p.x,p.y,p.z)})
+  const tracePoints=(a,b)=>Array.from({length:73},(_,i)=>{const p=sceneJump(a,b,i/72*.76);return new THREE.Vector3(p.x,p.y,p.z)})
   for(const edge of layout.edges){
     const a=byId.get(edge.a),b=byId.get(edge.b)
     const line=new THREE.Line(new THREE.BufferGeometry().setFromPoints(tracePoints(a,b)),new THREE.LineBasicMaterial({color:'#456a82',transparent:true,opacity:.38}))
@@ -135,11 +139,12 @@ export function createStreetScene(host,layout,callbacks){
     const edge=hovered?.kind==='edge'?neighbourhoodMeshes.find(e=>e.edge.id===hovered.id)?.edge:null
     for(const {node,ball,ring,heat} of nodeMeshes){const active=node.area_id===(hovered?.kind==='node'?hovered.id:selected)||[edge?.a,edge?.b].includes(node.area_id);ball.material.color.set(riskColor(risk[node.area_id]?.total_score));ball.scale.setScalar(active?1.2:1);ring.visible=active;heat.material.color.copy(ball.material.color)}
     for(const {line} of neighbourhoodMeshes){line.material.color.set(line.userData.id===hovered?.id?'#215fae':'#456a82');line.material.opacity=line.userData.id===hovered?.id?.toString()?1:.5}
+    if(!replayState)landmarks.highlight(hovered?.kind==='node'?hovered.id:selected)
     neighbourhood.visible=visibleLinks&&!replayState;invalidate()
   }
   function replay(state){
     replayState=state;replayGroup.visible=!!state;neighbourhood.visible=visibleLinks&&!state
-    if(!state){invalidate();return}
+    if(!state){landmarks.highlight(selected);invalidate();return}
     if(replayEvents!==state.events){
       for(const {line} of replayLines){replayGroup.remove(line);line.geometry.dispose();line.material.dispose()}
       replayEvents=state.events
@@ -149,8 +154,9 @@ export function createStreetScene(host,layout,callbacks){
     }
     for(const {index,line} of replayLines){line.visible=state.showLinks&&index<=state.index;line.material.opacity=index===state.index?1:.62;line.geometry.setDrawRange(0,index===state.index?Math.ceil(Math.min(1,state.progress/.76)*73):73)}
     const to=byId.get(state.events[state.index]?.area_id),from=byId.get(state.events[state.index-1]?.area_id)||to
+    landmarks.highlight(to?.area_id||null)
     traveller.visible=landing.visible=shadow.visible=!!to
-    if(to){const p=globeJump(from,to,state.progress);traveller.position.set(p.x,p.y,p.z);orient(shadow,p,R+.35);shadow.scale.setScalar(1+(traveller.position.length()-R-3)/18);orient(landing,to,R+.55);landing.scale.setScalar(1+p.pulse*2);landing.material.opacity=p.landed?1-p.pulse:.8}
+    if(to){const p=sceneJump(from,to,state.progress);traveller.position.set(p.x,p.y,p.z);orient(shadow,p,R+.35);shadow.scale.setScalar(1+(traveller.position.length()-R-3)/18);orient(landing,to,R+.55);landing.scale.setScalar(1+p.pulse*2);landing.material.opacity=p.landed?1-p.pulse:.8}
     invalidate()
   }
   function hit(event){const rect=renderer.domElement.getBoundingClientRect();pointer.set((event.clientX-rect.left)/rect.width*2-1,-(event.clientY-rect.top)/rect.height*2+1);raycaster.setFromCamera(pointer,camera);const hit=raycaster.intersectObjects(hitTargets.filter(o=>o.userData.kind!=='edge'||neighbourhood.visible),false)[0];return hit?.object.userData?.kind?hit.object.userData:null}
