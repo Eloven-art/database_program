@@ -2,7 +2,7 @@
   <el-container class="layout" :class="{'nav-open': navOpen}">
     <el-aside :width="navExpanded ? '220px' : '72px'" class="aside" :class="{ expanded: navExpanded }" @keydown.esc="navOpen=false">
       <div class="brand">
-        <el-tooltip :disabled="navExpanded" content="多风险特征预警系统 · 第6组" placement="right"><router-link to="/" class="brand-link" aria-label="多风险特征预警系统首页"><el-icon :size="24"><Odometer /></el-icon><span v-if="navExpanded">多风险特征预警系统<small>以酒驾为例 · 第6组</small></span></router-link></el-tooltip>
+        <el-tooltip :disabled="navExpanded" content="多风险特征预警系统" placement="right"><router-link to="/" class="brand-link" aria-label="多风险特征预警系统首页"><el-icon :size="24"><Odometer /></el-icon><span v-if="navExpanded">多风险特征预警系统</span></router-link></el-tooltip>
       </div>
       <nav class="rail-menu" aria-label="主导航">
         <div v-for="group in visibleMenu" :key="group.title" class="rail-group" :aria-label="group.title">
@@ -86,7 +86,7 @@ const MENU = [
       { path: '/people', page: 'people', title: '人员风险', code: 'B4', icon: 'User' },
     ],
   },
-  { title: '线索管理', items: [{ path: '/clues', page: 'clues', title: '线索列表', code: 'C1', icon: 'Tickets' }] },
+  { title: '线索管理', items: [{ path: '/clues', page: 'clues', title: '线索列表', code: 'C1', icon: 'Tickets' },{path:'/evidence',page:'evidence',title:'证据链浏览',code:'C3',icon:'Connection'}] },
   {
     title: '特征库',
     items: [

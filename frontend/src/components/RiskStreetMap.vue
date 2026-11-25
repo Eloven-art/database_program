@@ -14,10 +14,10 @@
       </g>
     </svg>
     <div class="map-labels">
-      <button v-for="n in labels" :key="n.area_id" class="map-label" :class="{'is-selected':selected===n.area_id}" :style="{left:`${n.left}px`,top:`${n.top}px`}" :aria-pressed="selected===n.area_id" :aria-label="`${n.area_name}，${risk[n.area_id] ? `${fixed(risk[n.area_id].total_score)}分` : '当夜无研判数据'}`" @click="emit('select',n.area_id)" @pointerenter="nodeHover(n.area_id,$event)" @pointerleave="clearHover" @focus="nodeHover(n.area_id,$event)" @blur="clearHover">{{ n.area_name }}<b v-if="selected===n.area_id && risk[n.area_id]">{{ fixed(risk[n.area_id].total_score) }}</b></button>
+      <button v-for="n in labels" :key="n.area_id" class="map-label" :class="{'is-selected':selected===n.area_id}" :style="{left:`${n.left}px`,top:`${n.top}px`}" :aria-pressed="selected===n.area_id" :aria-label="`${n.area_name}，${risk[n.area_id] ? risk[n.area_id].total_score==null ? (risk[n.area_id].status_label || '未评分') : `${fixed(risk[n.area_id].total_score)}分` : '当前时段无研判记录'}`" @click="emit('select',n.area_id)" @pointerenter="nodeHover(n.area_id,$event)" @pointerleave="clearHover" @focus="nodeHover(n.area_id,$event)" @blur="clearHover">{{ n.area_name }}<b v-if="selected===n.area_id && risk[n.area_id]">{{ risk[n.area_id].total_score==null?'未评分':fixed(risk[n.area_id].total_score) }}</b></button>
     </div>
     <div v-if="hover" class="map-point-tip" role="tooltip" :style="tipStyle">
-      <template v-if="hover.kind==='node'"><strong>{{ hoverNode?.area_name }}</strong><template v-if="hoverRisk"><span>{{ hoverRisk.risk_level_name }}风险 · {{ fixed(hoverRisk.total_score) }} 分</span><span>样本 {{ hoverRisk.sample_size }} · 命中 {{ hoverRisk.hit_cnt }} 项</span></template><span v-else>当夜无研判数据</span></template>
+      <template v-if="hover.kind==='node'"><strong>{{ hoverNode?.area_name }}</strong><template v-if="hoverRisk"><span>{{ hoverRisk.total_score==null ? (hoverRisk.status_label || '未评分') : `${hoverRisk.risk_level_name}风险 · ${fixed(hoverRisk.total_score)} 分` }}</span><span>近三小时消费 {{ hoverRisk.sample_size }} 条<span v-if="hoverRisk.total_score!=null"> · 命中 {{ hoverRisk.hit_cnt }} 项</span></span></template><span v-else>当前时段无研判记录</span></template>
       <template v-else><strong>{{ hoverEdgeNames }}</strong><span>空间邻近示意 · 无方向连接</span></template>
     </div>
     <div class="scene-status"><span>{{ fallback ? '二维街区' : '三维街区' }}</span><span>街道与链路为教学示意</span></div>

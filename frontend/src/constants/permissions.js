@@ -13,6 +13,7 @@ export const PAGE_ROLES = {
   admin: ['R_ADMIN'],
   cases: ['R_FEATURE', 'R_TEACHER'],
   people: ['R_ANALYST', 'R_TEACHER'],
+  evidence: ['R_ANALYST', 'R_TEACHER'],
   data: ['R_DATA', 'R_ADMIN', 'R_FEATURE', 'R_TEACHER'],
 }
 

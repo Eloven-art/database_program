@@ -100,6 +100,49 @@ def test_logout_revokes_session(client):
     assert client.get('/api/overview',headers=h).status_code==401
 
 
+def test_people_peak_recommendations_and_partial_search(client):
+    h=token(client)
+    peak=client.get('/api/person-risks?mode=peak&size=3',headers=h).json['data']
+    assert peak['mode']=='peak' and len(peak['list'])==3
+    assert all(r['risk_level']==3 and r['total_score']>=70 for r in peak['list'])
+    c=connect()
+    try:
+        for r in peak['list']:
+            assert float(one('SELECT MAX(total_score) n FROM risk_score WHERE person_id=%s',(r['person_id'],),c)['n'])==r['total_score']
+    finally:c.close()
+    partial=client.get('/api/person-risks?q=P001',headers=h).json['data']
+    assert partial['total']>0 and all('P001' in r['person_id'] for r in partial['list'])
+    assert client.get('/api/person-risks?q=NO_SUCH_PERSON',headers=h).json['data']['total']==0
+    assert client.get('/api/person-risks?mode=unknown',headers=h).status_code==400
+
+
+def test_evidence_discovery_scope_dedup_and_access(client):
+    h=token(client)
+    subjects=client.get('/api/evidence/subjects?scope=area&q=A02',headers=h).json['data']
+    assert subjects['total']==1
+    events=client.get('/api/evidence/events?scope=area&area_id=A02&size=200',headers=h).json['data']
+    assert events['total']==subjects['list'][0]['event_count']>1
+    assert len({r['episode_key'] for r in events['list']})==len(events['list'])
+    assert all(r['area_id']=='A02' and r['object_type']==1 for r in events['list'])
+    persons=client.get('/api/evidence/events?scope=person&person_id=P0277',headers=h).json['data']
+    assert persons['total']>1 and all(r['person_id']=='P0277' for r in persons['list'])
+    assert client.get('/api/evidence/events?scope=person',headers=h).status_code==400
+    assert client.get('/api/evidence/subjects?scope=invalid',headers=h).status_code==400
+    assert client.get('/api/evidence/subjects?scope=area&from=2026-11-02&to=2026-11-01',headers=h).status_code==400
+    assert client.get('/api/evidence/subjects',headers=token(client,'dataop')).status_code==403
+
+
+def test_no_activity_is_not_a_source_outage(client):
+    h=token(client)
+    result=client.get('/api/risk-map',headers=h).json['data']
+    hour=next(r for r in result['risk'] if r['date']=='2026-11-05 10:00:00')
+    assert len(hour['areas'])==12
+    assert all(r['sample_size']==0 and r['data_coverage']==1 for r in hour['areas'])
+    assert all(r['total_score'] is None and r['risk_status']=='no_activity' for r in hour['areas'])
+    score=client.get(f"/api/scores/{hour['areas'][0]['score_id']}/features",headers=h).json['data']['score']
+    assert score['risk_status']=='no_activity' and score['status_reason']
+
+
 def test_batch_run_retry_preserves_reviewed_snapshot(client):
     feature=token(client,'featop');analyst=token(client)
     bid='BTEST_RUN_RETRY'

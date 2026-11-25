@@ -9,6 +9,7 @@ import pymysql
 from werkzeug.security import check_password_hash
 from werkzeug.exceptions import HTTPException
 from .db import JSONProvider, ROOT, get_db, query, one, execute, insert, transaction, audit, now
+from .presentation import describe_score
 
 
 class APIError(Exception):
@@ -156,7 +157,9 @@ def create_app():
     @roles('R_ANALYST','R_TEACHER')
     def region_risk():
         where,args=filters({'batch_id':'batch_id','area_id':'area_id','risk_level':'risk_level','window_start':'window_start'})
-        return ok(page('SELECT * FROM v_region_risk WHERE 1=1'+where+' ORDER BY total_score DESC,score_id',args))
+        result=page('SELECT * FROM v_region_risk WHERE 1=1'+where+' ORDER BY total_score DESC,score_id',args)
+        result['list']=[describe_score(r) for r in result['list']]
+        return ok(result)
 
     @app.get('/api/scores/<int:sid>/features')
     @roles('R_ANALYST','R_TEACHER')
@@ -209,7 +212,8 @@ def create_app():
     @app.get('/api/clues/<cid>/chain')
     @roles('R_ANALYST','R_TEACHER')
     def chain(cid):
-        if not one('SELECT clue_id FROM risk_clue WHERE clue_id=%s',(cid,)):fail('线索不存在',404)
+        context=one('SELECT c.clue_id,s.object_type,s.area_id,s.person_id,s.window_start,a.area_name FROM risk_clue c JOIN risk_score s USING(score_id) LEFT JOIN area_info a ON a.area_id=s.area_id WHERE c.clue_id=%s',(cid,))
+        if not context:fail('线索不存在',404)
         rows=query('SELECT * FROM clue_chain WHERE clue_id=%s ORDER BY chain_id',(cid,))
         for r in rows:
             r['nodes']=query('SELECT * FROM chain_node WHERE chain_id=%s ORDER BY event_at,node_id',(r['chain_id'],))
@@ -222,7 +226,7 @@ def create_app():
                         break
             r['edges']=query('SELECT e.* FROM chain_edge e JOIN chain_node n ON n.node_id=e.from_node WHERE n.chain_id=%s',(r['chain_id'],))
         feedbacks=query('SELECT feedback_id,check_time,check_result,check_remark FROM clue_feedback WHERE clue_id=%s ORDER BY check_time',(cid,))
-        return ok(dict(chains=rows,feedbacks=feedbacks,note='关联车辆不等于确认驾驶人；链路快照仅包含研判时已知记录'))
+        return ok(dict(chains=rows,context=context,feedbacks=feedbacks,note='关联车辆不等于确认驾驶人；链路快照仅包含研判时已知记录'))
 
     @app.get('/api/batches')
     @roles('R_ANALYST','R_FEATURE','R_ADMIN','R_TEACHER')
@@ -386,7 +390,7 @@ def create_app():
         sql='''WITH ranked AS (SELECT s.*,ROW_NUMBER() OVER(PARTITION BY area_id,window_start ORDER BY b.created_at DESC,b.batch_id DESC) rn FROM v_region_risk s JOIN judge_batch b USING(batch_id) WHERE b.run_status=2) SELECT * FROM ranked WHERE rn=1 ORDER BY window_start,area_id'''
         aggregation=request.args.get('aggregation','hour')
         if aggregation not in ('hour','day_peak'):fail('聚合方式必须为 hour 或 day_peak')
-        rows=query(sql);groups={}
+        rows=[describe_score(r) for r in query(sql)];groups={}
         for r in rows:
             key=str(r['window_start']) if aggregation=='hour' else str(r['window_start'].date())
             bucket=groups.setdefault(key,{})
@@ -400,12 +404,6 @@ def create_app():
         where,args=filters({'area_id':'s.area_id','person_id':'s.person_id','version_id':'s.version_id'})
         obj=2 if request.args.get('person_id') else 1
         return ok(query('SELECT window_start,area_id,person_id,total_score,risk_level,score_id FROM (SELECT s.*,ROW_NUMBER() OVER(PARTITION BY object_type,object_id,window_start ORDER BY b.created_at DESC,b.batch_id DESC) rn FROM risk_score s JOIN judge_batch b USING(batch_id) WHERE b.run_status=2 AND s.object_type=%s'+where+') ranked WHERE rn=1 ORDER BY window_start LIMIT 2000',[obj,*args]))
-
-    @app.get('/api/person-risks')
-    @roles('R_ANALYST','R_TEACHER')
-    def person_risks():
-        where,args=filters({'person_id':'s.person_id','risk_level':'s.risk_level','area_id':'s.area_id'})
-        return ok(page('''SELECT s.*,a.area_name FROM (SELECT s.*,ROW_NUMBER() OVER(PARTITION BY person_id ORDER BY window_start DESC,b.created_at DESC,b.batch_id DESC) rn FROM risk_score s JOIN judge_batch b USING(batch_id) WHERE s.object_type=2 AND b.run_status=2) s LEFT JOIN area_info a ON a.area_id=s.area_id WHERE rn=1'''+where+' ORDER BY total_score DESC,s.person_id',args))
 
     @app.get('/api/persons/<pid>/timeline')
     @roles('R_ANALYST','R_TEACHER')
@@ -423,6 +421,8 @@ UNION ALL SELECT d.person_id,'driver_observation',t.track_id,t.pass_time,CONCAT(
 
     from .resources import register_resources
     register_resources(app)
+    from .discovery import register_discovery
+    register_discovery(app)
 
     @app.get('/')
     @app.get('/<path:path>')
@@ -440,7 +440,7 @@ def score_detail(sid):
     if not s:fail('评分不存在',404)
     fs=query('SELECT x.*,f.feature_name,f.match_expr,f.direction FROM risk_score_feature x JOIN feature_def f USING(feature_id) WHERE score_id=%s ORDER BY feature_id',(sid,))
     for f in fs:decode(f,'evidence_json')
-    return dict(score=s,features=fs)
+    return dict(score=describe_score(s),features=fs)
 
 
 def evaluation_sql():

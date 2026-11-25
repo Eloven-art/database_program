@@ -15,6 +15,7 @@
           <el-button :icon="Back" @click="router.back()">返回</el-button>
         </div>
 
+        <el-alert v-if="data.score.status_reason" :title="data.score.status_reason" type="info" :closable="false" show-icon />
         <div class="stat-grid">
           <div class="stat">
             <div class="label">总分</div>
@@ -23,7 +24,7 @@
           </div>
           <div class="stat">
             <div class="label">风险等级</div>
-            <div class="value"><LevelTag :level="data.score.risk_level" class="lv" /></div>
+            <div class="value"><LevelTag :level="data.score.risk_level" :status="data.score.risk_status" class="lv" /></div>
             <div class="foot">{{ data.score.is_clue === 1 ? '已生成待核查线索' : '未达线索条件' }}</div>
           </div>
           <div class="stat">

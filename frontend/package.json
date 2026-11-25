@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "test:dashboard": "node tests/dashboard.mjs",
-    "test:real": "node tests/real-backend.mjs"
+    "test:real": "node tests/real-backend.mjs",
+    "test:discovery": "node tests/discovery.mjs"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.1",

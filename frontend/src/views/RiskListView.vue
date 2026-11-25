@@ -15,7 +15,7 @@
           <el-table-column label="区域" min-width="130" fixed="left"><template #default="{row}"><router-link @click.stop :to="{name:'risk-detail',params:{scoreId:row.score_id}}">{{ row.area_name }}</router-link></template></el-table-column>
           <el-table-column label="时段" width="140"><template #default="{row}">{{ row.window_start?.slice(0,10) }}<br/><span class="num muted">{{ hourLabel(row.hour_slot) }}</span></template></el-table-column>
           <el-table-column label="总分" width="90" align="right"><template #default="{row}"><b class="num">{{ fixed(row.total_score) }}</b></template></el-table-column>
-          <el-table-column label="等级" width="100"><template #default="{row}"><LevelTag :level="row.risk_level" /></template></el-table-column>
+          <el-table-column label="等级" width="100"><template #default="{row}"><LevelTag :level="row.risk_level" :status="row.risk_status" /></template></el-table-column>
           <el-table-column label="关键理由" min-width="210"><template #default="{row}"><div class="reasons"><el-tooltip v-for="h in parseHitFeatures(row.hit_features).slice(0,2)" :key="h.id" :content="`${h.id} · 贡献 ${signed(h.weight)}`"><span class="reason">{{ featureName(h.id) }}</span></el-tooltip><span v-if="parseHitFeatures(row.hit_features).length>2" class="muted">另 {{ parseHitFeatures(row.hit_features).length-2 }} 项</span><span v-if="!row.hit_features" class="muted">无命中</span></div></template></el-table-column>
           <el-table-column label="操作" width="100" fixed="right"><template #default="{row}"><router-link @click.stop :to="{name:'risk-detail',params:{scoreId:row.score_id}}">查看详情</router-link></template></el-table-column>
         </el-table>

@@ -35,7 +35,7 @@ const areas = computed(() => [...new Map(cells.value.map((r) => [r.area_id, r.ar
 const peaks = computed(() => areas.value.map(([id]) => cells.value.filter((r) => r.area_id === id).reduce((a, b) => a.total_score >= b.total_score ? a : b)))
 const thresholds = computed(() => props.rule?.low_threshold != null && props.rule?.high_threshold != null ? { low: Number(props.rule.low_threshold), high: Number(props.rule.high_threshold) } : null)
 const option = computed(() => ({
-  tooltip: { formatter: (p) => `${escapeHtml(p.data.row.area_name)} · ${pad2(p.data.row.hour_slot)} 时<br/>总分 ${fixed(p.data.row.total_score)} · ${escapeHtml(p.data.row.risk_level_name)}风险<br/>样本 ${p.data.row.sample_size} · 命中 ${p.data.row.hit_cnt} 项` },
+  tooltip: { formatter: (p) => `${escapeHtml(p.data.row.area_name)} · ${pad2(p.data.row.hour_slot)} 时<br/>总分 ${fixed(p.data.row.total_score)} · ${escapeHtml(p.data.row.status_label || (p.data.row.total_score==null?'未评分':p.data.row.risk_level_name+'风险'))}<br/>样本 ${p.data.row.sample_size} · 命中 ${p.data.row.hit_cnt} 项` },
   grid: { left: 108, right: 16, top: 16, height: areas.value.length * 36 },
   xAxis: { type: 'category', data: nightHours.map((h) => `${pad2(h)}时`), axisLabel: { interval: 0 }, splitArea: { show: true } },
   yAxis: { type: 'category', inverse: true, data: areas.value.map(([, name]) => name), splitArea: { show: true } },

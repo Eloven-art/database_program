@@ -3,6 +3,7 @@ import { useAuthStore } from '@/stores/auth'
 
 // 12 个页面 / 5 个模块，路由与《前端交接文档》第四节一致；C2 以抽屉形式挂在 C1 上
 const routes = [
+  { path:'/evidence',name:'evidence',component:()=>import('@/views/EvidenceBrowseView.vue'),meta:{page:'evidence',title:'证据链浏览',code:'C3'} },
   { path: '/people', name: 'people', component: () => import('@/views/PeopleView.vue'), meta: {page:'people',title:'人员风险',code:'B4'} },
   { path: '/data', name: 'data', component: () => import('@/views/DataManageView.vue'), meta: {page:'data',title:'数据管理',code:'D4'} },
   { path: '/login', name: 'login', component: () => import('@/views/LoginView.vue'), meta: { public: true, bare: true } },
