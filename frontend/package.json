@@ -8,6 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "test:dashboard": "node tests/dashboard.mjs",
+    "test:replay": "node tests/clue-replay.mjs",
     "test:real": "node tests/real-backend.mjs",
     "test:discovery": "node tests/discovery.mjs"
   },

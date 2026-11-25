@@ -1,9 +1,11 @@
 <template>
   <div class="map-page">
     <AsyncState :loading="loading" :error="error" :data="mapData" :empty="!!mapData && !areas.length" empty-text="暂无区域坐标或风险数据" @retry="load">
-      <div v-if="mapData" class="map-canvas" :class="{'legend-open':legendOpen}">
-        <RiskStreetMap ref="streetMap" :areas="areas" :risk="riskByArea" :selected="selectedId" :show-buildings="showBuildings" :show-links="showLinks" :mode="viewMode" :insets="sceneInsets" @select="selectArea" @mode="fallback=$event" />
-        <header ref="headingPanel" class="floating map-heading">
+      <div v-if="mapData" class="map-canvas" :class="{'legend-open':legendOpen,'replay-mode':displayMode==='replay'}">
+        <RiskStreetMap ref="streetMap" :areas="areas" :risk="riskByArea" :selected="selectedId" :show-buildings="showBuildings" :show-links="showLinks&&displayMode==='risk'" :mode="viewMode" :insets="sceneInsets" :replay-enabled="displayMode==='replay'" @select="selectArea" @interact="replayPanel?.pause()" @mode="fallback=$event" />
+        <div class="map-mode-switch" role="group" aria-label="地图展示模式"><button :aria-pressed="displayMode==='risk'" @click="switchDisplay('risk')">风险态势</button><button :aria-pressed="displayMode==='replay'" @click="switchDisplay('replay')">线索回放</button><span>虚构城市 · 区域级定位</span></div>
+        <MapClueReplay v-if="displayMode==='replay'" ref="replayPanel" :areas="areas" :initial-date="dates.at(-1)||''" :show-links="showLinks" @frame="streetMap?.setReplayFrame($event)" @land="landEvent" @follow="streetMap?.focusArea($event)" />
+        <header v-if="displayMode==='risk'" ref="headingPanel" class="floating map-heading">
           <h2>{{ aggregation==='hour'?'区域逐小时风险分布':'区域日峰值风险分布' }}</h2>
           <el-radio-group v-model="aggregation" size="small" aria-label="地图风险聚合方式" @change="changeAggregation"><el-radio-button value="hour">逐小时</el-radio-button><el-radio-button value="day_peak">日峰值（当日最高）</el-radio-button></el-radio-group>
           <div class="map-range"><el-select :model-value="currentIdx" aria-label="选择观察时段" @change="selectDate"><el-option v-for="(d,i) in dates" :key="d" :label="d" :value="i" /></el-select><span class="muted">{{ activeCount }} 个已评分 · {{ quietCount }} 个暂无消费活动</span></div>
@@ -16,22 +18,23 @@
           <details><summary>技术说明与示例范围</summary><p>按区域以红色深浅展示风险等级（颜色越深风险越高），拖动时间轴查看各观察时段的风险分布变化。坐标取自区域表 area_info 的经纬度字段。</p><p>示例城市（虚构）· 坐标为示例值，仅用于教学演示。</p><p>街道与链路为教学示意，链路表示空间邻近关系，无方向，不代表人员往来或风险传播。每个热斑表示一个区域的时段指数评分，大小不表示真实覆盖范围。</p></details>
         </header>
         <div class="map-tools" role="toolbar" aria-label="地图快捷工具">
-          <el-tooltip content="刷新地图" placement="left"><el-button :icon="Refresh" :loading="loading" type="primary" aria-label="刷新地图" @click="pause();load()" /></el-tooltip>
-          <el-tooltip content="区域排行" placement="left"><el-button :icon="Sort" :aria-pressed="rankingOpen" aria-label="切换区域排行" @click="rankingOpen=!rankingOpen" /></el-tooltip>
+          <el-tooltip content="刷新地图" placement="left"><el-button :icon="Refresh" :loading="loading" type="primary" aria-label="刷新地图" @click="pause();replayPanel?.pause();load()" /></el-tooltip>
+          <el-tooltip v-if="displayMode==='risk'" content="区域排行" placement="left"><el-button :icon="Sort" :aria-pressed="rankingOpen" aria-label="切换区域排行" @click="rankingOpen=!rankingOpen" /></el-tooltip>
           <el-tooltip content="风险图例" placement="left"><el-button :icon="InfoFilled" :aria-pressed="legendOpen" aria-label="切换风险图例" @click="legendOpen=!legendOpen" /></el-tooltip>
-          <el-tooltip content="恢复最近观察时段" placement="left"><el-button :icon="Aim" aria-label="恢复最近观察时段" @click="resetView" /></el-tooltip>
+          <el-tooltip v-if="displayMode==='risk'" content="恢复最近观察时段" placement="left"><el-button :icon="Aim" aria-label="恢复最近观察时段" @click="resetView" /></el-tooltip>
         </div>
-        <aside v-if="rankingOpen" class="floating ranking-panel" aria-label="区域风险排行">
+        <div v-if="displayMode==='replay'" class="replay-map-controls" @click="replayPanel?.pause()"><el-button :icon="ZoomOut" aria-label="缩小地图" @click="streetMap?.zoom(1/1.2)"/><el-button :icon="ZoomIn" aria-label="放大地图" @click="streetMap?.zoom(1.2)"/><el-button :icon="RefreshLeft" aria-label="重置地图视角" @click="resetCamera"/><button :aria-pressed="viewMode==='top'" @click="replayPanel?.pause();viewMode=viewMode==='top'?'inclined':'top'">{{ viewMode==='top'?'倾斜':'俯视' }}</button><button :aria-pressed="showBuildings" @click="showBuildings=!showBuildings">体块</button><button :aria-pressed="showLinks" @click="showLinks=!showLinks">链路</button><button :aria-pressed="fallback" @click="streetMap?.toggleFlat()">{{ fallback?'三维':'二维' }}</button><details><summary>说明</summary><p>地图为本地虚构城市贴图；落点精度为区域。球体跳跃按事件时间展示，跨事件虚线仅表示浏览顺序，不表示真实行驶轨迹。风险指数沿用0–100口径。</p></details></div>
+        <aside v-if="rankingOpen && displayMode==='risk'" class="floating ranking-panel" aria-label="区域风险排行">
           <div class="panel-title"><h3>区域风险排行</h3><el-button text aria-label="关闭区域排行" @click="rankingOpen=false"><el-icon><Close /></el-icon></el-button></div>
           <p class="muted">按当前时段风险指数排列，点击区域查看依据</p>
           <div class="ranking-scroll"><button v-for="(a,i) in rankedAreas" :key="a.area_id" class="area-row" :class="{'is-selected':selectedId===a.area_id}" :aria-pressed="selectedId===a.area_id" @click="selectArea(a.area_id)"><span class="rank-num num">{{ i+1 }}</span><span class="area-name">{{ a.area_name }}<small>{{ a.risk ? `样本 ${a.risk.sample_size}` : '该时段无研判数据' }}</small></span><span class="area-value"><b class="num">{{ a.risk ? fixed(a.risk.total_score) : '—' }}</b><LevelTag v-if="a.risk" :level="a.risk.risk_level" :status="a.risk.risk_status" /></span></button></div>
         </aside>
         <aside v-if="legendOpen" class="floating legend-panel"><div class="panel-title"><h3>风险图例</h3><el-button text aria-label="关闭风险图例" @click="legendOpen=false"><el-icon><Close /></el-icon></el-button></div><div class="legend"><span class="gradient-bar" /><span>0 → 100 · 中 ≥40 · 高 ≥70</span><i class="gray-dot" /><span>该时段无研判数据</span></div></aside>
-        <section v-if="selectedArea" ref="selectionPanel" class="floating selection-panel" aria-live="polite">
+        <section v-if="selectedArea && displayMode==='risk'" ref="selectionPanel" class="floating selection-panel" aria-live="polite">
           <div class="selection-head"><div><h3>{{ selectedArea.area_name }}</h3><p class="muted">{{ currentDate || '暂无观察时段' }} · {{ selectedArea.area_type_name }}</p></div><LevelTag v-if="selectedArea.risk" :level="selectedArea.risk.risk_level" :status="selectedArea.risk.risk_status" /><el-button text :aria-expanded="detailOpen" aria-label="展开或收起区域详情" @click="detailOpen=!detailOpen"><el-icon><component :is="detailOpen ? 'ArrowDown' : 'ArrowUp'" /></el-icon></el-button></div>
           <div v-if="detailOpen"><template v-if="selectedArea.risk"><div class="selection-facts"><span>时段指数 <b>{{ fixed(selectedArea.risk.total_score) }}</b> 分</span><span v-if="selectedArea.risk.total_score!=null">命中 {{ selectedArea.risk.hit_cnt }} 项</span><span>近三小时消费 {{ selectedArea.risk.sample_size }} 条</span></div><p v-if="selectedArea.risk.status_reason" class="score-explanation">{{ selectedArea.risk.status_reason }}</p><div class="toolbar"><router-link v-if="selectedArea.risk.score_id != null" :to="{name:'risk-detail',params:{scoreId:selectedArea.risk.score_id}}">查看评分依据 →</router-link><router-link :to="{name:'risk',query:{area_id:selectedId,batch_id:selectedArea.risk.batch_id}}">区域评分 →</router-link><router-link v-if="auth.canPage('clues')" :to="{name:'clues',query:{area_id:selectedId}}">区域线索（全部时段） →</router-link></div><router-link :to="{name:'evidence',query:{scope:'area',area_id:selectedId,date:currentDate.slice(0,10)}}">浏览区域证据链 →</router-link><p class="mono muted batch-label">{{ selectedArea.risk.batch_id }}</p></template><p v-else class="muted">该区域该时段无研判数据，可切换观察时段查看。</p></div>
         </section>
-        <section class="floating timeline-panel" aria-label="观察时段时间轴">
+        <section v-if="displayMode==='risk'" class="floating timeline-panel" aria-label="观察时段时间轴">
           <el-button :icon="playing ? VideoPause : VideoPlay" :disabled="dates.length<2" @click="playing ? pause() : play()">{{ playing ? '暂停' : '播放' }}</el-button>
           <div class="timeline-slider"><el-slider v-model="currentIdx" :min="0" :max="Math.max(1,dates.length-1)" :disabled="dates.length<2" :step="1" :marks="dateMarks" :format-tooltip="dateLabel" aria-label="观察时段时间轴" @change="pause" /></div><span class="num">{{ currentDate || '暂无观察时段' }}</span>
         </section>
@@ -48,8 +51,12 @@ import {useAuthStore} from '@/stores/auth'
 import {fixed} from '@/utils/format'
 import AsyncState from '@/components/AsyncState.vue'
 import RiskStreetMap from '@/components/RiskStreetMap.vue'
+import MapClueReplay from '@/components/MapClueReplay.vue'
 import LevelTag from '@/components/LevelTag.vue'
 const auth=useAuthStore()
+const displayMode=ref('replay'),replayPanel=ref(null)
+function switchDisplay(mode){pause();replayPanel.value?.pause();streetMap.value?.setReplayFrame(null);displayMode.value=mode;nextTick(measurePanels)}
+function landEvent(event){if(event.area_id)selectedId.value=event.area_id;const hour=event.event_at.slice(0,13)+':00:00';const i=dates.value.indexOf(hour);if(i>=0)currentIdx.value=i}
 const aggregation=ref('hour')
 const {data:mapData,loading,error,run:load}=useAsync(()=>api.riskMap({aggregation:aggregation.value}))
 async function changeAggregation(){pause();currentIdx.value=0;await load();currentIdx.value=Math.max(0,dates.value.length-1)}
@@ -62,12 +69,13 @@ const sceneInsets=ref({left:420,right:370,top:36,bottom:130})
 let panelObserver=null
 function measurePanels(){
   const wide=window.innerWidth>1200
+  if(displayMode.value==='replay'){sceneInsets.value=wide?{left:420,right:400,top:85,bottom:240}:{left:20,right:20,top:480,bottom:520};return}
   sceneInsets.value=wide ? {left:420,right:rankingOpen.value?370:76,top:36,bottom:140} : {left:20,right:20,top:(headingPanel.value?.offsetHeight||240)+36,bottom:(detailOpen.value?Math.max(180,selectionPanel.value?.offsetHeight||0):60)+146}
 }
 function resetCamera(){viewMode.value='inclined';nextTick(()=>streetMap.value?.reset())}
 let timer=null
 function resetView(){pause();currentIdx.value=Math.max(0,dates.value.length-1);selectedId.value=rankedAreas.value[0]?.area_id || '';detailOpen.value=true}
-function selectArea(id){pause();selectedId.value=id;detailOpen.value=true;nextTick(()=>streetMap.value?.focusArea(id))}
+function selectArea(id){pause();replayPanel.value?.pause();selectedId.value=id;detailOpen.value=true;nextTick(()=>streetMap.value?.focusArea(id))}
 watch(dates,(d,old)=>{if(d.length && !old?.length)currentIdx.value=d.length-1})
 const currentDate=computed(()=>dates.value[currentIdx.value] || '')
 const currentRisk=computed(()=>mapData.value?.risk.find((r)=>r.date===currentDate.value))
@@ -106,4 +114,9 @@ onBeforeUnmount(()=>{pause();panelObserver?.disconnect();window.removeEventListe
 @media(max-width:600px){.map-heading{width:calc(100% - 88px);padding:12px}.map-heading h2{font-size:21px}.map-range{gap:6px;font-size:11px}.map-range .el-select{width:132px}.view-controls{margin-top:8px}.view-switch button{padding:4px 10px}.map-help{display:none}.selection-panel{padding:12px}.map-page,.map-canvas{min-height:760px}.map-tools .el-button{width:40px;height:40px}.timeline-panel{gap:8px}.layer-controls{gap:5px;margin-top:6px}.layer-controls button{padding:4px 6px}}
 .legend-open .ranking-panel{max-height:calc(100% - 310px)}
 @media(max-width:1200px){.legend-open .ranking-panel{max-height:190px}}
+.map-mode-switch{position:absolute;top:16px;left:16px;display:flex;align-items:center;gap:4px;background:#fff;padding:4px;border-radius:9px;box-shadow:0 2px 8px #20282e10}.map-mode-switch button,.replay-map-controls>button:not(.el-button){border:0;background:transparent;padding:8px 12px;font:inherit;font-size:12px;color:var(--text-secondary);border-radius:6px;cursor:pointer}.map-mode-switch button[aria-pressed=true],.replay-map-controls>button[aria-pressed=true]{background:var(--accent-soft);color:var(--accent-ink)}.map-mode-switch>span{font-size:10px;color:var(--text-muted);padding:0 10px}.map-heading{top:76px}.replay-mode{min-height:980px}.replay-map-controls{position:absolute;top:16px;right:76px;background:#fff;border-radius:9px;padding:4px;display:flex;align-items:center;gap:4px;box-shadow:0 2px 8px #20282e10}.replay-map-controls .el-button{width:32px;padding:5px;margin:0}.replay-map-controls details{margin:0;font-size:11px;padding:0 8px}.replay-map-controls details p{position:absolute;top:36px;right:0;width:300px;padding:14px;background:#fff;border-radius:10px;box-shadow:0 4px 20px #20282e15;z-index:8;line-height:1.8}.replay-mode :deep(.scene-status){bottom:205px}.replay-mode .legend-panel{top:76px;bottom:auto;left:420px;right:auto;z-index:6}
+@media(max-width:1200px){.replay-mode{min-height:1250px}.replay-mode .map-tools{display:none}.replay-map-controls{top:70px;left:16px;right:auto;max-width:calc(100% - 32px);flex-wrap:wrap}.replay-mode :deep(.replay-filter){top:130px}.replay-mode :deep(.replay-events){top:425px}.map-mode-switch>span{display:none}.replay-mode .legend-panel{left:16px;top:380px}.replay-mode :deep(.scene-status){bottom:235px}}
+@media(max-width:600px){.replay-mode{min-height:1260px}.replay-map-controls{left:12px;gap:2px}.replay-map-controls>button:not(.el-button){padding:6px 9px}.replay-mode :deep(.replay-filter){width:calc(100% - 24px);left:12px}.replay-mode :deep(.replay-events){top:420px}.map-heading{top:76px}.map-mode-switch{left:12px}}
+@media(min-width:1201px){.replay-mode{min-height:880px}.replay-mode :deep(.fallback-note){top:76px!important;left:420px;max-width:calc(100% - 820px)}}
+@media(max-width:1200px){.replay-mode :deep(.fallback-note){top:480px!important;left:12px;right:12px;max-width:none}}
 </style>

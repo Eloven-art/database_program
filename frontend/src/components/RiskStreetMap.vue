@@ -2,16 +2,18 @@
   <div ref="root" class="street-map" tabindex="0" aria-label="区域风险地图，方向键平移，加减键缩放" @keydown="onKey">
     <div v-show="!fallback" ref="host" class="scene-host" />
     <svg v-if="fallback" class="flat-map" :viewBox="flatViewBox" aria-label="二维街区风险地图" @pointerdown="flatDown" @pointermove="flatMove" @pointerup="flatUp" @pointercancel="flatUp" @wheel.prevent="flatWheel">
-      <defs><radialGradient id="street-heat"><stop offset="0" stop-color="currentColor" stop-opacity=".7" /><stop offset="1" stop-color="currentColor" stop-opacity="0" /></radialGradient></defs>
+      <defs><radialGradient id="street-heat"><stop offset="0" stop-color="#fff" stop-opacity=".7" /><stop offset="1" stop-color="#fff" stop-opacity="0" /></radialGradient><mask id="street-heat-mask" maskContentUnits="objectBoundingBox"><rect width="1" height="1" fill="url(#street-heat)" /></mask><radialGradient id="street-sphere" cx="30%" cy="25%" r="80%"><stop offset="0" stop-color="#fff" stop-opacity=".9"/><stop offset=".35" stop-color="#fff" stop-opacity=".08"/><stop offset="1" stop-color="#17282e" stop-opacity=".45"/></radialGradient></defs>
       <rect x="-1000" y="-1000" width="2000" height="2000" fill="#e9ede7" />
-      <g fill="#fafbf7" stroke="#cad3c7" stroke-width=".3"><rect v-for="(r,i) in layout.roads" :key="i" :x="r.x-r.w/2" :y="r.z-r.d/2" :width="r.w" :height="r.d" /></g>
+      <image :href="mapTextureUrl" x="-360" y="-360" width="720" height="720" />
       <g v-if="showBuildings" fill="#c3cec1"><rect v-for="(b,i) in layout.buildings" :key="i" :x="b.x-b.w/2" :y="b.z-b.d/2" :width="b.w" :height="b.d" /></g>
-      <g v-if="showLinks" fill="none" stroke-width=".6"><path v-for="e in layout.edges" :key="e.id" :d="flatPath(e)" :stroke="edgeActive(e) ? '#345fc5' : '#80949c'" :opacity="edgeActive(e) ? 1 : .5" @pointerenter="edgeHover(e,$event)" @pointerleave="clearHover" /></g>
+      <g v-if="showLinks && !replayEnabled" fill="none" stroke-width=".6"><path v-for="e in layout.edges" :key="e.id" :d="flatPath(e)" :stroke="edgeActive(e) ? '#345fc5' : '#80949c'" :opacity="edgeActive(e) ? 1 : .5" @pointerenter="edgeHover(e,$event)" @pointerleave="clearHover" /></g>
       <g v-for="n in layout.nodes" :key="n.area_id" :transform="`translate(${n.x} ${n.z})`" :style="{color:riskColor(risk[n.area_id]?.total_score)}" @pointerenter="nodeHover(n.area_id,$event)" @pointerleave="clearHover">
-        <circle v-if="risk[n.area_id]" r="11" fill="url(#street-heat)" />
+        <circle v-if="risk[n.area_id]" r="11" fill="currentColor" mask="url(#street-heat-mask)" />
         <circle v-if="selected===n.area_id" r="3.6" fill="none" stroke="#345fc5" stroke-width=".6" />
-        <circle r="2.3" fill="currentColor" stroke="#79897a" stroke-width=".3" />
+        <ellipse cy="1.8" rx="3.2" ry="1.3" fill="#334736" opacity=".16" /><circle r="3.5" fill="currentColor"/><circle r="3.5" fill="url(#street-sphere)" stroke="#79897a" stroke-width=".2" />
       </g>
+      <g v-if="flatReplay && flatReplay.showLinks" fill="none" stroke="#345fc5" stroke-width=".6"><path v-for="(line,i) in flatReplayLines" :key="i" :d="replayPath(line)" :stroke-dasharray="line.related?undefined:'1.2 1'" opacity=".6" /></g>
+      <g v-if="flatTraveller" style="color:#345fc5"><ellipse :cx="flatTraveller.x" :cy="flatTraveller.z" rx="4" ry="1.5" fill="#334736" opacity=".2"/><circle :cx="flatTraveller.x" :cy="flatTraveller.z-(flatTraveller.y-3.5)*.5" r="4" fill="currentColor"/><circle :cx="flatTraveller.x" :cy="flatTraveller.z-(flatTraveller.y-3.5)*.5" r="4" fill="url(#street-sphere)"/><circle v-if="flatTraveller.landed" :cx="flatTraveller.x" :cy="flatTraveller.z" :r="3.5+flatTraveller.pulse*7" fill="none" stroke="#345fc5" :opacity="1-flatTraveller.pulse" stroke-width=".5"/></g>
     </svg>
     <div class="map-labels">
       <button v-for="n in labels" :key="n.area_id" class="map-label" :class="{'is-selected':selected===n.area_id}" :style="{left:`${n.left}px`,top:`${n.top}px`}" :aria-pressed="selected===n.area_id" :aria-label="`${n.area_name}，${risk[n.area_id] ? risk[n.area_id].total_score==null ? (risk[n.area_id].status_label || '未评分') : `${fixed(risk[n.area_id].total_score)}分` : '当前时段无研判记录'}`" @click="emit('select',n.area_id)" @pointerenter="nodeHover(n.area_id,$event)" @pointerleave="clearHover" @focus="nodeHover(n.area_id,$event)" @blur="clearHover">{{ n.area_name }}<b v-if="selected===n.area_id && risk[n.area_id]">{{ risk[n.area_id].total_score==null?'未评分':fixed(risk[n.area_id].total_score) }}</b></button>
@@ -27,16 +29,24 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { streetLayout, riskColor, edgeHeight } from '@/utils/street-map'
+import {mapTextureUrl} from '@/utils/map-cartography'
+import {jumpPoint,replaySegments} from '@/utils/clue-replay'
 import { fixed } from '@/utils/format'
-const props=defineProps({areas:{type:Array,required:true},risk:{type:Object,required:true},selected:{type:String,default:''},showBuildings:{type:Boolean,default:true},showLinks:{type:Boolean,default:true},mode:{type:String,default:'inclined'},insets:{type:Object,default:()=>({})}})
-const emit=defineEmits(['select','mode'])
+const props=defineProps({areas:{type:Array,required:true},risk:{type:Object,required:true},selected:{type:String,default:''},showBuildings:{type:Boolean,default:true},showLinks:{type:Boolean,default:true},mode:{type:String,default:'inclined'},insets:{type:Object,default:()=>({})},replayEnabled:{type:Boolean,default:false}})
+const emit=defineEmits(['select','mode','interact'])
 const root=ref(null),host=ref(null),projected=ref([]),fallback=ref(false),starting=ref(true),hover=ref(null),tipPosition=ref({x:0,y:0})
 const fallbackReason=ref('当前设备暂无法显示三维，已保留二维地图与全部业务操作。')
 const layout=computed(()=>streetLayout(props.areas))
 const size=ref({w:1000,h:700}),flatCamera=ref({x:0,z:0,zoom:1})
 let scene=null,observer=null,disposed=false,generation=0
+let latestReplay=null
+const flatReplay=shallowRef(null)
+function setReplayFrame(state){latestReplay=state;if(fallback.value)flatReplay.value=state;else scene?.replay(state)}
+const flatReplayLines=computed(()=>flatReplay.value?replaySegments(flatReplay.value.events,flatReplay.value.chain).filter(e=>e.index<=flatReplay.value.index):[])
+const flatTraveller=computed(()=>{const s=flatReplay.value;if(!s)return null;const b=layout.value.nodes.find(n=>n.area_id===s.events[s.index]?.area_id),a=layout.value.nodes.find(n=>n.area_id===s.events[s.index-1]?.area_id);return b?jumpPoint(a||b,b,s.progress):null})
+function replayPath(line){const a=layout.value.nodes.find(n=>n.area_id===line.from),b=layout.value.nodes.find(n=>n.area_id===line.to);return a&&b?`M ${a.x} ${a.z} Q ${(a.x+b.x)/2} ${(a.z+b.z)/2-edgeHeight(Math.hypot(a.x-b.x,a.z-b.z))*.45} ${b.x} ${b.z}`:''}
 const flatDimensions=computed(()=>{
   const {w,h}=size.value,{left=24,right=24,top=180,bottom=260}=props.insets
   const fullH=Math.max(202*h/Math.max(180,h-top-bottom),202*h/Math.max(180,w-left-right))/flatCamera.value.zoom
@@ -78,7 +88,7 @@ function clearHover(){if(scene)scene.hover(null);else hover.value=null}
 function edgeActive(e){return e.id===hover.value?.id || e.a===props.selected || e.b===props.selected}
 function flatPath(e){const a=layout.value.nodes.find((n)=>n.area_id===e.a),b=layout.value.nodes.find((n)=>n.area_id===e.b);return `M ${a.x} ${a.z} Q ${(a.x+b.x)/2} ${(a.z+b.z)/2-edgeHeight(e.distance)*.45} ${b.x} ${b.z}`}
 function updateScene(){scene?.update({risk:props.risk,selected:props.selected,buildings:props.showBuildings,links:props.showLinks,mode:props.mode,insets:props.insets})}
-function useFallback(){generation++;scene?.dispose();scene=null;fallback.value=true;starting.value=false;hover.value=null;emit('mode',true)}
+function useFallback(){generation++;scene?.dispose();scene=null;fallback.value=true;flatReplay.value=latestReplay;starting.value=false;hover.value=null;emit('mode',true)}
 function toggleFlat(){if(fallback.value)start();else {fallbackReason.value='已切换二维模式，支持拖动、双指缩放和区域选择。';useFallback()}}
 async function start(){
   const current=++generation
@@ -88,8 +98,8 @@ async function start(){
   try {
     const {createStreetScene}=await import('./street-scene')
     if(disposed||current!==generation)return
-    scene=createStreetScene(host.value,layout.value,{onProject:(rows)=>{projected.value=rows},onHover:receiveHover,onSelect:(id)=>emit('select',id),onFailure:useFallback})
-    updateScene();starting.value=false;emit('mode',false)
+    scene=createStreetScene(host.value,layout.value,{onProject:(rows)=>{projected.value=rows},onHover:receiveHover,onSelect:(id)=>emit('select',id),onFailure:useFallback,onInteract:()=>emit('interact')})
+    updateScene();scene.replay(latestReplay);starting.value=false;emit('mode',false)
   }catch {if(!disposed&&current===generation)useFallback()}
 }
 function reset(){hover.value=null;flatCamera.value={x:0,z:0,zoom:1};scene?.reset()}
@@ -99,10 +109,11 @@ function pan(x,z){if(scene)scene.pan(x,z);else flatCamera.value={...flatCamera.v
 function onKey(e){
   if(e.target!==root.value)return
   const actions={ArrowLeft:()=>pan(-8,0),ArrowRight:()=>pan(8,0),ArrowUp:()=>pan(0,-8),ArrowDown:()=>pan(0,8),'+':()=>zoom(1.2),'=':()=>zoom(1.2),'-':()=>zoom(1/1.2),Home:reset}
-  if(actions[e.key]){e.preventDefault();actions[e.key]()}
+  if(actions[e.key]){e.preventDefault();emit('interact');actions[e.key]()}
 }
 const pointers=new Map();let flatGesture=null
 function flatDown(e){
+  emit('interact')
   pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});e.currentTarget.setPointerCapture(e.pointerId)
   flatGesture={camera:{...flatCamera.value},points:[...pointers.values()],moved:false,start:{x:e.clientX,y:e.clientY}}
   hover.value=null
@@ -120,12 +131,12 @@ function flatUp(e){
   }
   pointers.delete(e.pointerId);flatGesture=null
 }
-function flatWheel(e){zoom(e.deltaY<0?1.1:1/1.1)}
+function flatWheel(e){emit('interact');zoom(e.deltaY<0?1.1:1/1.1)}
 watch(()=>[props.risk,props.selected,props.showBuildings,props.showLinks,props.mode,props.insets],()=>{hover.value=null;updateScene()},{deep:true})
 watch(layout,()=>{if(!fallback.value)start()})
 onMounted(()=>{observer=new ResizeObserver(()=>{size.value={w:root.value.clientWidth,h:root.value.clientHeight}});observer.observe(root.value);start()})
 onBeforeUnmount(()=>{disposed=true;generation++;observer?.disconnect();scene?.dispose()})
-defineExpose({reset,zoom,focusArea,toggleFlat})
+defineExpose({reset,zoom,focusArea,toggleFlat,setReplayFrame})
 </script>
 
 <style scoped>

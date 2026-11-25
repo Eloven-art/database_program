@@ -1,6 +1,8 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { edgeHeight, riskColor } from '@/utils/street-map'
+import {mapTextureUrl} from '@/utils/map-cartography'
+import {jumpPoint,replaySegments} from '@/utils/clue-replay'
 
 // Imported only by the map route. The scene renders on demand, without particles.
 export function createStreetScene(host, layout, callbacks) {
@@ -27,16 +29,9 @@ export function createStreetScene(host, layout, callbacks) {
     mesh.rotation.x = -Math.PI / 2; mesh.position.set(x, y, z); ground.add(mesh); return mesh
   }
   plane(2000, 2000, '#e9ede7', 0, 0, 0)
-  for (const road of layout.roads) {
-    plane(road.w + 1.1, road.d, '#dce3d7', road.x, road.z, .04)
-    plane(road.w, road.d, '#f6f8f3', road.x, road.z, .06)
-    if (Math.min(road.w,road.d) > 4) plane(road.w > road.d ? road.w : .15, road.w > road.d ? .15 : road.d, '#d8dfd3', road.x, road.z, .075)
-  }
-  // Small local access paths anchor region points to the schematic street grid.
-  for (const n of layout.nodes) {
-    const nearX=layout.roads.filter((r)=>r.w<r.d).reduce((closest,r)=>Math.abs(r.x-n.x)<Math.abs(closest-n.x)?r.x:closest,layout.roads[0].x)
-    plane(Math.max(.4, Math.abs(nearX - n.x)), 1.7, '#fafbf7', (nearX + n.x) / 2, n.z, .08)
-  }
+  const texture=new THREE.TextureLoader().load(mapTextureUrl,()=>invalidate())
+  texture.colorSpace=THREE.SRGBColorSpace;texture.anisotropy=Math.min(8,renderer.capabilities.getMaxAnisotropy())
+  const mapPlane=plane(720,720,'#ffffff',0,0,.04);mapPlane.material.map=texture
   if (layout.buildings.length) {
     const boxes = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshLambertMaterial({ color: '#d1dacd',emissive:'#d1dacd',emissiveIntensity:.25,transparent:true,opacity:.55 }), layout.buildings.length)
     const feet = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({color:'#bdc8b7',transparent:true,opacity:.24,depthWrite:false}),layout.buildings.length)
@@ -58,13 +53,47 @@ export function createStreetScene(host, layout, callbacks) {
   for (const n of layout.nodes) {
     const heat = new THREE.Mesh(new THREE.PlaneGeometry(22, 22), new THREE.MeshBasicMaterial({ map: heatTexture, transparent: true, depthWrite: false }))
     heat.rotation.x = -Math.PI / 2; heat.position.set(n.x, .15, n.z); scene.add(heat)
-    const point = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.4, .8, 24), new THREE.MeshBasicMaterial())
-    point.position.set(n.x, .9, n.z); point.userData = { kind: 'node', id: n.area_id }; scene.add(point)
-    const ring = new THREE.Mesh(new THREE.RingGeometry(2.7, 3.05, 40), new THREE.MeshBasicMaterial({ color: '#345fc5', side: THREE.DoubleSide }))
+    const point = new THREE.Mesh(new THREE.SphereGeometry(3.5,24,16), new THREE.MeshStandardMaterial({roughness:.35,metalness:.08}))
+    point.position.set(n.x, 4, n.z); point.userData = { kind: 'node', id: n.area_id }; scene.add(point)
+    const ring = new THREE.Mesh(new THREE.RingGeometry(4.2, 4.6, 40), new THREE.MeshBasicMaterial({ color: '#345fc5', side: THREE.DoubleSide }))
     ring.rotation.x = -Math.PI / 2; ring.position.set(n.x, .2, n.z); scene.add(ring)
     nodeMeshes.push({ node: n, point, ring, heat }); hitTargets.push(point)
   }
   const byId = new Map(layout.nodes.map((n) => [n.area_id, n]))
+  const replayGroup=new THREE.Group();scene.add(replayGroup)
+  const traveller=new THREE.Mesh(new THREE.SphereGeometry(4,24,16),new THREE.MeshStandardMaterial({color:'#345fc5',roughness:.24,metalness:.12}))
+  const shadow=new THREE.Mesh(new THREE.PlaneGeometry(12,12),new THREE.MeshBasicMaterial({map:heatTexture,color:'#334736',transparent:true,opacity:.3,depthWrite:false}))
+  shadow.rotation.x=-Math.PI/2
+  const landing=new THREE.Mesh(new THREE.RingGeometry(3.4,3.8,48),new THREE.MeshBasicMaterial({color:'#345fc5',transparent:true,side:THREE.DoubleSide}))
+  landing.rotation.x=-Math.PI/2
+  replayGroup.add(traveller,shadow,landing);replayGroup.visible=false
+  let replayEvents=null,replayLines=[],replayEnabled=false
+  function replayFrame(state){
+    replayEnabled=!!state;replayGroup.visible=!!state;links.visible=!state&&visibleLinks
+    if(!state){invalidate();return}
+    if(replayEvents!==state.events){
+      for(const {line} of replayLines){replayGroup.remove(line);line.geometry.dispose();line.material.dispose()}
+      replayEvents=state.events
+      replayLines=replaySegments(state.events,state.chain).flatMap(segment=>{
+        const a=byId.get(segment.from),b=byId.get(segment.to);if(!a||!b)return []
+        // Use the same flight curve for the trace and the moving sphere.
+        const points=Array.from({length:65},(_,i)=>{const p=jumpPoint(a,b,i/64*.76);return new THREE.Vector3(p.x,p.y+1,p.z)})
+        const geometry=new THREE.BufferGeometry().setFromPoints(points)
+        const material=segment.related?new THREE.LineBasicMaterial({color:'#345fc5',transparent:true,opacity:.6}):new THREE.LineDashedMaterial({color:'#647987',dashSize:1.2,gapSize:1,transparent:true,opacity:.55})
+        const line=new THREE.Line(geometry,material);line.computeLineDistances();replayGroup.add(line)
+        return [{...segment,line}]
+      })
+    }
+    for(const {index,line} of replayLines){line.visible=state.showLinks&&index<=state.index;line.geometry.setDrawRange(0,index===state.index?Math.max(0,Math.ceil(Math.min(1,state.progress/.76)*65)):65)}
+    const target=byId.get(state.events[state.index]?.area_id),previous=byId.get(state.events[state.index-1]?.area_id)
+    traveller.visible=!!target;shadow.visible=!!target;landing.visible=!!target
+    if(target){
+      const p=jumpPoint(previous||target,target,state.progress)
+      traveller.position.set(p.x,p.y+1,p.z);shadow.position.set(p.x,.16,p.z);shadow.scale.setScalar(1+(p.y-3.5)/25);shadow.material.opacity=.35/(1+(p.y-3.5)/12)
+      landing.position.set(target.x,.2,target.z);landing.scale.setScalar(1+p.pulse*2);landing.material.opacity=p.landed?1-p.pulse:.65
+    }
+    invalidate()
+  }
   for (const edge of layout.edges) {
     const a = byId.get(edge.a), b = byId.get(edge.b)
     const curve = new THREE.QuadraticBezierCurve3(new THREE.Vector3(a.x, 1, a.z), new THREE.Vector3((a.x + b.x) / 2, edgeHeight(edge.distance) * 2, (a.z + b.z) / 2), new THREE.Vector3(b.x, 1, b.z))
@@ -78,7 +107,7 @@ export function createStreetScene(host, layout, callbacks) {
     if (disposed) return
     renderer.render(scene, camera)
     callbacks.onProject(nodeMeshes.map(({ node }) => {
-      position.set(node.x, 1.5, node.z).project(camera)
+      position.set(node.x, 4, node.z).project(camera)
       return { ...node, left: (position.x + 1) * width / 2, top: (1 - position.y) * height / 2, visible: position.z > -1 && position.z < 1 }
     }))
   }
@@ -117,7 +146,7 @@ export function createStreetScene(host, layout, callbacks) {
       const active = hoveredEdge ? edge.id === hoveredEdge.id : edge.a === focusId || edge.b === focusId
       mesh.material.color.set(active ? '#345fc5' : '#71858f'); mesh.material.opacity = active ? .95 : focusId ? .56 : .7
     }
-    links.visible = visibleLinks; invalidate()
+    links.visible = visibleLinks&&!replayEnabled; invalidate()
   }
   function setHover(hit, event) {
     if (hovered?.id !== hit?.id || hovered?.kind !== hit?.kind) { hovered = hit; updateStyle() }
@@ -128,7 +157,7 @@ export function createStreetScene(host, layout, callbacks) {
     const rect = renderer.domElement.getBoundingClientRect()
     pointer.set((event.clientX - rect.left) / rect.width * 2 - 1, -(event.clientY - rect.top) / rect.height * 2 + 1)
     raycaster.setFromCamera(pointer, camera)
-    return raycaster.intersectObjects(hitTargets.filter((m) => m.parent !== links || visibleLinks), false)[0]?.object.userData || null
+    return raycaster.intersectObjects(hitTargets.filter((m) => m.parent !== links || visibleLinks&&!replayEnabled), false)[0]?.object.userData || null
   }
   let down = null, moving = false, multiTouch = false
   const activePointers = new Set()
@@ -148,13 +177,14 @@ export function createStreetScene(host, layout, callbacks) {
   window.addEventListener('pointerup', onUp)
   window.addEventListener('pointercancel', onUp)
   controls.addEventListener('change', invalidate)
-  controls.addEventListener('start', () => callbacks.onHover(null))
+  controls.addEventListener('start', () => {callbacks.onHover(null);callbacks.onInteract?.()})
   const observer = new ResizeObserver(() => {
     width = Math.max(1, host.clientWidth); height = Math.max(1, host.clientHeight)
     renderer.setSize(width, height); fit()
   })
   observer.observe(host); reset()
   return {
+    replay:replayFrame,
     update(next) {
       risk = next.risk; selected = next.selected; insets = next.insets
       buildings.visible = next.buildings; visibleLinks = next.links
@@ -177,7 +207,7 @@ export function createStreetScene(host, layout, callbacks) {
       renderer.domElement.removeEventListener('pointerdown', onDown); renderer.domElement.removeEventListener('pointermove', onMove); renderer.domElement.removeEventListener('pointerleave', onLeave); renderer.domElement.removeEventListener('webglcontextlost', onLost)
       const geometries = new Set(), materials = new Set()
       scene.traverse((o) => { if(o.isInstancedMesh)o.dispose(); if (o.geometry) geometries.add(o.geometry); if (o.material) materials.add(o.material) })
-      geometries.forEach((g) => g.dispose()); materials.forEach((m) => m.dispose()); heatTexture.dispose()
+      geometries.forEach((g) => g.dispose()); materials.forEach((m) => m.dispose()); heatTexture.dispose();texture.dispose()
       renderer.dispose(); renderer.domElement.remove()
     },
   }

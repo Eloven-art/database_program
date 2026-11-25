@@ -423,6 +423,8 @@ UNION ALL SELECT d.person_id,'driver_observation',t.track_id,t.pass_time,CONCAT(
     register_resources(app)
     from .discovery import register_discovery
     register_discovery(app)
+    from .map_replay import register_map_replay
+    register_map_replay(app)
 
     @app.get('/')
     @app.get('/<path:path>')
