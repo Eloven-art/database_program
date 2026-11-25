@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "test:dashboard": "node tests/dashboard.mjs",
-    "test:replay": "node tests/clue-replay.mjs && node tests/curved-map.mjs && node tests/area-landmarks.mjs && node tests/landmark-geometry.mjs",
+    "test:replay": "node tests/clue-replay.mjs && node tests/curved-map.mjs && node tests/area-landmarks.mjs && node tests/landmark-geometry.mjs && node tests/map-navigation.mjs",
     "test:real": "node tests/real-backend.mjs",
     "test:discovery": "node tests/discovery.mjs"
   },

@@ -14,6 +14,12 @@ try {
   const {createAreaLandmarks}=await vite.ssrLoadModule('/src/components/area-landmark-scene.js')
   model=createAreaLandmarks(sites,{rawPoint:(lon,lat,radius)=>{const p=spherePoint(lon*.4,lat*.4,radius);return new THREE.Vector3(p.x,p.y,p.z)},radius:R,facadeTexture:null})
   assert.equal(new Set(model.hits.map(m=>m.userData.id)).size,12)
+  const medium=model.group.getObjectByName('district-medium-detail'),fine=model.group.getObjectByName('district-fine-detail')
+  assert.ok(medium.children.length>20&&fine.children.length>10,'zoom layers need actual extra geometry')
+  model.setDetailLevel(0);assert.equal(medium.visible,false);assert.equal(fine.visible,false)
+  model.setDetailLevel(1);assert.equal(medium.visible,true);assert.equal(fine.visible,false)
+  model.setDetailLevel(2);assert.equal(medium.visible,true);assert.equal(fine.visible,true)
+  assert.equal(model.group.visible,true,'primary landmarks must remain visible at every zoom')
   const obstacles=[],matrix=new THREE.Matrix4(),inverse=new THREE.Matrix4()
   model.group.traverse(mesh=>{
     if(!mesh.geometry)return

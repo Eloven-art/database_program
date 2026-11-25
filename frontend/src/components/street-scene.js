@@ -5,6 +5,7 @@ import {replaySegments} from '@/utils/clue-replay'
 import {GLOBE_RADIUS as R,globeLayout,globeJump,angularDistance,wheelDistance} from '@/utils/globe-math'
 import {createCitySurfaces,CITY_BOUNDS,cityRoadLatitudes,CITY_ANGLE_SCALE,cityWarp} from './city-surfaces'
 import {createAreaLandmarks} from './area-landmark-scene'
+import {dragBindings,clampMapTarget,mapDetailLevel} from '@/utils/map-navigation'
 
 export function createStreetScene(host,layout,callbacks){
   const renderer=new THREE.WebGLRenderer({antialias:true})
@@ -15,10 +16,10 @@ export function createStreetScene(host,layout,callbacks){
   const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(42,1,.1,1800)
   camera.position.set(0,R+420,310)
   const controls=new OrbitControls(camera,renderer.domElement)
-  controls.enableDamping=true;controls.dampingFactor=.12;controls.enablePan=false
-  controls.target.set(0,R*.99,0);controls.minDistance=150;controls.maxDistance=1000;controls.minPolarAngle=.35;controls.maxPolarAngle=1.35;controls.minAzimuthAngle=-1.1;controls.maxAzimuthAngle=1.1
-  controls.mouseButtons={LEFT:THREE.MOUSE.ROTATE,MIDDLE:THREE.MOUSE.DOLLY,RIGHT:THREE.MOUSE.ROTATE}
-  controls.touches={ONE:THREE.TOUCH.ROTATE,TWO:THREE.TOUCH.DOLLY_ROTATE}
+  controls.enableDamping=true;controls.dampingFactor=.12;controls.enablePan=true;controls.screenSpacePanning=false;controls.panSpeed=.8;controls.rotateSpeed=.65
+  controls.target.set(0,R*.99,0);controls.minDistance=100;controls.maxDistance=1000;controls.minPolarAngle=.35;controls.maxPolarAngle=1.35;controls.minAzimuthAngle=-1.1;controls.maxAzimuthAngle=1.1
+  function setDragMode(mode){const b=dragBindings(mode);controls.mouseButtons={LEFT:THREE.MOUSE[b.left],MIDDLE:THREE.MOUSE.DOLLY,RIGHT:THREE.MOUSE[b.right]};controls.touches={ONE:THREE.TOUCH[b.touch],TWO:THREE.TOUCH.DOLLY_PAN}}
+  setDragMode('pan')
   scene.add(new THREE.HemisphereLight('#edf8ff','#779b8e',1.6))
   const sun=new THREE.DirectionalLight('#fff5dc',2.0);sun.position.set(-330,R+500,500);sun.target.position.set(0,R*.97,0);sun.castShadow=true;sun.shadow.mapSize.set(1024,1024);Object.assign(sun.shadow.camera,{left:-350,right:350,top:350,bottom:-350,near:1,far:1400});sun.shadow.bias=-.001;scene.add(sun,sun.target)
   const fill=new THREE.DirectionalLight('#9acbea',1.2);fill.position.set(180,R+180,-100);scene.add(fill)
@@ -47,8 +48,8 @@ export function createStreetScene(host,layout,callbacks){
   const rimGeo=new THREE.BufferGeometry();rimGeo.setAttribute('position',new THREE.Float32BufferAttribute(rimVertices,3));rimGeo.setIndex(rimIndices);rimGeo.computeVertexNormals();scene.add(new THREE.Mesh(rimGeo,new THREE.MeshStandardMaterial({color:'#c4c6b5',roughness:1,side:THREE.DoubleSide})))
   const dummy=new THREE.Object3D()
   const facade=document.createElement('canvas');facade.width=128;facade.height=256
-  const fc=facade.getContext('2d');fc.fillStyle='#f1efe4';fc.fillRect(0,0,128,256)
-  for(let row=0;row<9;row++)for(let col=0;col<4;col++){fc.fillStyle=(row+col)%4===0?'#9ab1b7':'#78949e';fc.fillRect(10+col*29,12+row*27,15,18);fc.fillStyle='#c6d9db';fc.fillRect(12+col*29,13+row*27,3,16)}
+  const fc=facade.getContext('2d');fc.fillStyle='#dfdfd2';fc.fillRect(0,0,128,256)
+  for(let row=0;row<9;row++)for(let col=0;col<4;col++){fc.fillStyle=(row+col)%4===0?'#9bb7bd':'#597b88';fc.fillRect(9+col*29,10+row*27,18,20);fc.strokeStyle='#b2c5c4';fc.lineWidth=1;fc.strokeRect(9+col*29,10+row*27,18,20);fc.fillStyle='#c6d9db';fc.fillRect(12+col*29,13+row*27,3,16)}
   const facadeTexture=new THREE.CanvasTexture(facade);facadeTexture.colorSpace=THREE.SRGBColorSpace
   const wall=new THREE.MeshStandardMaterial({map:facadeTexture,roughness:.85}),roof=new THREE.MeshStandardMaterial({color:'#eef0e5',roughness:.9})
   const boxes=new THREE.InstancedMesh(new THREE.BoxGeometry(1,1,1),[wall,wall,roof,roof,wall,wall],surfaces.buildings.length)
@@ -104,6 +105,7 @@ export function createStreetScene(host,layout,callbacks){
   const shadow=new THREE.Mesh(new THREE.PlaneGeometry(9,9),new THREE.MeshBasicMaterial({map:heatTexture,color:'#092a35',transparent:true,opacity:.6,depthWrite:false}))
   replayGroup.add(traveller,landing,shadow);replayGroup.visible=false
   let width=1,height=1,frame=0,disposed=false,selected='',hovered=null,risk={},visibleLinks=true,replayState=null,replayEvents=null,replayLines=[]
+  let detailLevel=0
   let interactive=false,dragging=false,distance=400,fitDistance=400,transition=null,previousTime=0
   const raycaster=new THREE.Raycaster(),pointer=new THREE.Vector2()
   const reduced=()=>window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -120,19 +122,23 @@ export function createStreetScene(host,layout,callbacks){
     }
     if(!dragging&&!transition&&Math.abs(camera.position.distanceTo(controls.target)-distance)>.015){const length=camera.position.distanceTo(controls.target);camera.position.sub(controls.target).setLength(THREE.MathUtils.lerp(length,distance,reduced()?1:1-Math.exp(-12*(dt||.016)))).add(controls.target);moving=true}
     if(controls.update())moving=true
+    constrainTarget()
+    const nextDetail=mapDetailLevel(camera.position.distanceTo(controls.target),detailLevel)
+    if(nextDetail!==detailLevel){detailLevel=nextDetail;landmarks.setDetailLevel(detailLevel)}
     renderer.render(scene,camera)
     callbacks.onProject(nodes.map(n=>{const v=normal(n).multiplyScalar(R+2),visible=normal(n).dot(camera.position)>R;v.project(camera);return {...n,left:(v.x+1)*width/2,top:(1-v.y)*height/2,visible:visible&&v.z>-1&&v.z<1}}))
     if(moving)invalidate();else previousTime=0
   }
+  function constrainTarget(){const next=clampMapTarget(controls.target,R),delta=new THREE.Vector3(next.x,next.y,next.z).sub(controls.target);if(delta.lengthSq()>.00001){controls.target.add(delta);camera.position.add(delta)}}
   function setInteractive(value){interactive=value;controls.enabled=value;renderer.domElement.style.touchAction=value?'none':'pan-y';renderer.domElement.style.cursor=value?'grab':'default';if(!value){dragging=false;distance=camera.position.distanceTo(controls.target)}invalidate()}
   function fit(resize=false){
     const previous=fitDistance
     fitDistance=Math.max(230/(Math.tan(rad(camera.fov/2))*camera.aspect),155/Math.tan(rad(camera.fov/2)))*1.12
     fitDistance=Math.min(950,fitDistance)
-    distance=resize?THREE.MathUtils.clamp(distance/previous*fitDistance,150,1000):fitDistance
+    distance=resize?THREE.MathUtils.clamp(distance/previous*fitDistance,100,1000):fitDistance
     invalidate()
   }
-  function moveCamera(target,nextDistance){const dir=new THREE.Vector3(0,1.35,1).normalize();distance=THREE.MathUtils.clamp(nextDistance,150,1000);transition={from:camera.position.clone(),to:target.clone().addScaledVector(dir,distance),fromTarget:controls.target.clone(),toTarget:target.clone(),start:performance.now()};invalidate()}
+  function moveCamera(target,nextDistance){const dir=new THREE.Vector3(0,1.35,1).normalize();distance=THREE.MathUtils.clamp(nextDistance,100,1000);transition={from:camera.position.clone(),to:target.clone().addScaledVector(dir,distance),fromTarget:controls.target.clone(),toTarget:target.clone(),start:performance.now()};invalidate()}
   function reset(){fit();moveCamera(new THREE.Vector3(0,R*.99,0),fitDistance)}
   function face(direction,nextDistance){moveCamera(direction.clone().multiplyScalar(R*.98),nextDistance)}
   function style(){
@@ -166,10 +172,10 @@ export function createStreetScene(host,layout,callbacks){
   const onMove=e=>{if(down){if(Math.hypot(e.clientX-down.x,e.clientY-down.y)>5)moved=true;return}hover(hit(e),e)}
   const onUp=e=>{if(down&&!moved&&activePointers.size===1&&e.type!=='pointercancel'){const h=hit(e);if(h?.kind==='node')callbacks.onSelect(h.id)}activePointers.delete(e.pointerId);if(!activePointers.size)down=null}
   const onLeave=e=>hover(null,e)
-  const onWheel=e=>{if(!interactive)return;e.preventDefault();e.stopImmediatePropagation();callbacks.onInteract?.();transition=null;distance=wheelDistance(distance,e.deltaY*(e.deltaMode===1?16:e.deltaMode===2?height:1),150,1000);invalidate()}
+  const onWheel=e=>{if(!interactive)return;e.preventDefault();e.stopImmediatePropagation();callbacks.onInteract?.();transition=null;distance=wheelDistance(distance,e.deltaY*(e.deltaMode===1?16:e.deltaMode===2?height:1),100,1000);invalidate()}
   const onStart=()=>{dragging=true;transition=null;callbacks.onHover(null);callbacks.onInteract?.()}
   const onEnd=()=>{dragging=false;distance=camera.position.distanceTo(controls.target);invalidate()}
-  const onChange=()=>{if(dragging)distance=camera.position.distanceTo(controls.target);invalidate()}
+  const onChange=()=>{constrainTarget();if(dragging)distance=camera.position.distanceTo(controls.target);invalidate()}
   const onLost=e=>{e.preventDefault();callbacks.onFailure()}
   renderer.domElement.addEventListener('wheel',onWheel,{capture:true,passive:false})
   renderer.domElement.addEventListener('pointerdown',onDown);renderer.domElement.addEventListener('pointermove',onMove);renderer.domElement.addEventListener('pointerleave',onLeave);renderer.domElement.addEventListener('webglcontextlost',onLost)
@@ -178,13 +184,13 @@ export function createStreetScene(host,layout,callbacks){
   const observer=new ResizeObserver(()=>{width=Math.max(1,host.clientWidth);height=Math.max(1,host.clientHeight);renderer.setSize(width,height);camera.aspect=width/height;camera.updateProjectionMatrix();fit(true)})
   observer.observe(host);controls.update();setInteractive(false);fit();camera.position.sub(controls.target).setLength(distance).add(controls.target)
   return {
-    replay,setInteractive,reset,
+    replay,setInteractive,setDragMode,reset,
     update(next){risk=next.risk;selected=next.selected;visibleLinks=next.links;details.visible=next.buildings;style()},
-    zoom(factor){transition=null;callbacks.onInteract?.();distance=THREE.MathUtils.clamp(distance/factor,150,1000);invalidate()},
-    pan(x,z){const s=new THREE.Spherical().setFromVector3(camera.position.clone().sub(controls.target));s.theta+=x*.008;s.phi=THREE.MathUtils.clamp(s.phi+z*.008,.15,Math.PI-.15);camera.position.setFromSpherical(s).add(controls.target);transition=null;controls.update();invalidate()},
+    zoom(factor){transition=null;callbacks.onInteract?.();distance=THREE.MathUtils.clamp(distance/factor,100,1000);invalidate()},
+    pan(x,z){const delta=new THREE.Vector3(x,0,z);controls.target.add(delta);camera.position.add(delta);transition=null;constrainTarget();controls.update();invalidate()},
     focus(id){const n=byId.get(id);if(n)face(normal(n),Math.min(fitDistance,230))},
     focusChain(){const chainNodes=[...new Set(replayState?.events.map(e=>e.area_id))].map(id=>byId.get(id)).filter(Boolean);if(!chainNodes.length){reset();return}const center=chainNodes.reduce((v,n)=>v.add(normal(n)),new THREE.Vector3()).normalize();const spread=Math.max(...chainNodes.map(n=>angularDistance(center,n)));face(center,Math.max(170,fitDistance*Math.min(1,.42+spread/.95)))},
     hover(id,event){hover(id?{kind:'node',id}:null,event)},
-    dispose(){disposed=true;cancelAnimationFrame(frame);observer.disconnect();controls.dispose();window.removeEventListener('pointerup',onUp);window.removeEventListener('pointercancel',onUp);renderer.domElement.removeEventListener('wheel',onWheel,true);renderer.domElement.removeEventListener('pointerdown',onDown);renderer.domElement.removeEventListener('pointermove',onMove);renderer.domElement.removeEventListener('pointerleave',onLeave);renderer.domElement.removeEventListener('webglcontextlost',onLost);const geometries=new Set(),materials=new Set();scene.traverse(o=>{if(o.isInstancedMesh)o.dispose();if(o.geometry)geometries.add(o.geometry);if(o.material)(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>materials.add(m))});geometries.forEach(g=>g.dispose());materials.forEach(m=>Array.isArray(m)?m.forEach(v=>v.dispose()):m.dispose());facadeTexture.dispose();Object.values(textures).forEach(t=>t.dispose());heatTexture.dispose();renderer.dispose();renderer.domElement.remove()}
+    dispose(){disposed=true;cancelAnimationFrame(frame);observer.disconnect();controls.dispose();window.removeEventListener('pointerup',onUp);window.removeEventListener('pointercancel',onUp);renderer.domElement.removeEventListener('wheel',onWheel,true);renderer.domElement.removeEventListener('pointerdown',onDown);renderer.domElement.removeEventListener('pointermove',onMove);renderer.domElement.removeEventListener('pointerleave',onLeave);renderer.domElement.removeEventListener('webglcontextlost',onLost);const geometries=new Set(),materials=new Set(),materialTextures=new Set();scene.traverse(o=>{if(o.isInstancedMesh)o.dispose();if(o.geometry)geometries.add(o.geometry);if(o.material)(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>materials.add(m))});geometries.forEach(g=>g.dispose());materials.forEach(m=>{if(m.map)materialTextures.add(m.map);m.dispose()});materialTextures.forEach(t=>t.dispose());facadeTexture.dispose();Object.values(textures).forEach(t=>t.dispose());heatTexture.dispose();renderer.dispose();renderer.domElement.remove()}
   }
 }
