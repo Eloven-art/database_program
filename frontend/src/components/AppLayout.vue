@@ -29,7 +29,7 @@
           <el-tooltip v-if="API_MODE === 'mock'" content="后端未就绪，当前使用前端内置的模拟数据（取自示例库）" placement="bottom">
             <el-tag type="warning" effect="plain">模拟数据模式</el-tag>
           </el-tooltip>
-          <el-tag v-else type="success" effect="plain">已连接后端</el-tag>
+          <el-tag v-else type="success" effect="plain">真实后端模式</el-tag>
           <el-dropdown trigger="click" @command="onCommand">
             <button type="button" class="user" aria-label="用户菜单">
               <el-icon><User /></el-icon>
@@ -64,26 +64,26 @@ import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { RefreshLeft, SwitchButton } from '@element-plus/icons-vue'
-import { API_MODE } from '@/api'
-import { resetMockDb } from '@/api/mock/server'
+import { API_MODE, api } from '@/api'
 import { useAuthStore } from '@/stores/auth'
 import { ROLE_LABEL } from '@/constants/enums'
 import HealthLight from './HealthLight.vue'
 
 const navOpen = ref(false)
-const navExpanded = ref(false)
+const navExpanded = ref(true)
 const route = useRoute()
 watch(() => route.fullPath, () => { navOpen.value = false })
 const router = useRouter()
 const auth = useAuthStore()
 
 const MENU = [
-  { title: '概览', items: [{ path: '/', page: 'overview', title: '首页概览', code: 'A1', icon: 'Odometer' }] },
+  { title: '概览', items: [{ path: '/', page: 'overview', title: '研判工作台', code: 'A1', icon: 'Odometer' }] },
   {
     title: '风险研判',
     items: [
       { path: '/risk', page: 'risk', title: '区域时段风险', code: 'B1', icon: 'DataAnalysis' },
       { path: '/risk-map', page: 'risk', title: '风险地图', code: 'B3', icon: 'MapLocation' },
+      { path: '/people', page: 'people', title: '人员风险', code: 'B4', icon: 'User' },
     ],
   },
   { title: '线索管理', items: [{ path: '/clues', page: 'clues', title: '线索列表', code: 'C1', icon: 'Tickets' }] },
@@ -92,6 +92,7 @@ const MENU = [
     items: [
       { path: '/features', page: 'features', title: '特征清单', code: 'D1', icon: 'Collection' },
       { path: '/ops', page: 'ops', title: '版本与批次', code: 'D3', icon: 'Operation' },
+      { path: '/data', page: 'data', title: '数据管理', code: 'D4', icon: 'Coin' },
     ],
   },
   {
@@ -115,13 +116,13 @@ const activeMenu = computed(() => (parentRoute.value ? parentRoute.value.path : 
 
 async function onCommand(cmd) {
   if (cmd === 'logout') {
+    await api.logout().catch(() => {})
     auth.logout()
     router.replace({ name: 'login' })
   } else if (cmd === 'reset') {
     const confirmed = await ElMessageBox.confirm('将清除本浏览器中对模拟数据的所有改动（核查结论、批次、参数等），恢复为示例库初始状态。', '重置演示数据', { type: 'warning', confirmButtonText: '重置', cancelButtonText: '取消' })
       .then(() => true, () => false)
     if (!confirmed) return
-    resetMockDb()
     ElMessage.success('已恢复为示例库初始数据')
     router.go(0)
   }

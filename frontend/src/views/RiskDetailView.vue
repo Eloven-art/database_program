@@ -1,6 +1,6 @@
 <template>
   <div class="page">
-    <AsyncState :loading="loading" :error="error" :data="data" @retry="load">
+    <AsyncState class="detail-state" :loading="loading" :error="error" :data="data" @retry="load">
       <template v-if="data">
         <div class="page-head">
           <div>
@@ -47,6 +47,7 @@
 
         <el-alert type="info" :closable="false" show-icon
           title="本页只解释评分由哪些特征构成，不代表对任何个人或场所作出定性结论。" />
+        <el-card shadow="never"><RiskTrend :area-id="data.score.object_type===1?data.score.area_id:undefined" :person-id="data.score.person_id||undefined" :version-id="data.score.version_id" /></el-card>
       </template>
     </AsyncState>
   </div>
@@ -63,6 +64,7 @@ import { fixed, objectLabel } from '@/utils/format'
 import AsyncState from '@/components/AsyncState.vue'
 import LevelTag from '@/components/LevelTag.vue'
 import FeatureJudgeTable from '@/components/FeatureJudgeTable.vue'
+import RiskTrend from '@/components/RiskTrend.vue'
 
 const dicts = useDicts()
 const route = useRoute()
@@ -80,5 +82,6 @@ const missingCnt = computed(() => data.value.features.filter((f) => f.is_missing
 </script>
 
 <style scoped>
+.detail-state { display:grid; gap:24px; }
 .lv { font-size: 16px; padding: 4px 14px; }
 </style>

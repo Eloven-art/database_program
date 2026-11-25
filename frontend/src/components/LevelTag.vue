@@ -10,7 +10,7 @@ import { enumLabel } from '@/constants/enums'
 const props = defineProps({ level: { type: [Number, String], default: null } })
 const NAME_TO_LV = { 低: 1, 中: 2, 高: 3 }
 const lv = computed(() => (typeof props.level === 'string' ? NAME_TO_LV[props.level] : props.level))
-const label = computed(() => `${enumLabel('risk_level', lv.value)}风险`)
+const label = computed(() => lv.value==null ? '数据不足' : `${enumLabel('risk_level', lv.value)}风险`)
 </script>
 
 <style scoped>

@@ -8,7 +8,7 @@
     </template>
     <div v-if="error" class="muted">{{ error.message }}</div>
     <div v-else-if="data">
-      <div class="row"><span>表 / 行</span><span class="num">{{ data.tables }} 张 / {{ data.rows }} 行</span></div>
+      <div class="row"><span>表 / 业务流水</span><span class="num">{{ data.tables }} 张 / {{ data.rows }} 行</span></div>
       <div v-for="c in CHECKS" :key="c.key" class="row">
         <span>{{ c.label }}</span>
         <span class="num" :class="{ bad: data[c.key] !== 0 }">{{ data[c.key] }}</span>

@@ -24,7 +24,7 @@
           <el-button type="primary" native-type="submit" :loading="loading" class="full">登录</el-button>
         </el-form>
 
-        <div v-if="API_MODE === 'mock'" class="demo">
+        <div class="demo">
           <div class="muted small">演示账号（取自示例库，口令均为 123456），点击填入：</div>
           <div class="accounts">
             <el-button v-for="a in DEMO" :key="a.username" size="small" @click="fill(a.username)">

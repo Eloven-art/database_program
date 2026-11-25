@@ -1,7 +1,7 @@
 // Visual geometry only. No roads or links are business evidence.
 export function riskColor(score) {
   if (score == null || !Number.isFinite(Number(score))) return '#dce1dd'
-  const t = Math.max(0, Math.min(1, Number(score) / 9))
+  const t = Math.max(0, Math.min(1, Number(score) / 100))
   return `rgb(${Math.round(244 - 76 * t)},${Math.round(228 - 164 * t)},${Math.round(222 - 165 * t)})`
 }
 
