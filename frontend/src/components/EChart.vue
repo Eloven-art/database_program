@@ -5,11 +5,11 @@
 <script setup>
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as echarts from 'echarts/core'
-import { LineChart, BarChart, PieChart, HeatmapChart } from 'echarts/charts'
+import { LineChart, BarChart, PieChart, ScatterChart, HeatmapChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent, LegendComponent, VisualMapComponent, DataZoomComponent, MarkLineComponent, TitleComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { chartTheme } from '@/styles/chart-theme'
-echarts.use([LineChart, BarChart, PieChart, HeatmapChart, GridComponent, TooltipComponent, LegendComponent, VisualMapComponent, DataZoomComponent, MarkLineComponent, TitleComponent, CanvasRenderer])
+echarts.use([LineChart, BarChart, PieChart, ScatterChart, HeatmapChart, GridComponent, TooltipComponent, LegendComponent, VisualMapComponent, DataZoomComponent, MarkLineComponent, TitleComponent, CanvasRenderer])
 echarts.registerTheme('risk-workbench', chartTheme)
 
 const props = defineProps({

@@ -7,9 +7,9 @@ const xs=[-60,-49,-39,-30,-22,-14,-6,2,10,19,29,40,50,60]
 const ys=[-42,-34,-27,-20,-13,-6,2,10,18,26,34,42]
 export const cityRoadLatitudes=ys
 export const riverLongitude=lat=>-17+4*Math.sin(lat*.075)+1.8*Math.sin(lat*.21)
-export function createCitySurfaces(nodes){
+export function createCitySurfaces(nodes,{textureSize}={}){
   const sites=landmarkSites(nodes),riverLongitude=anchoredRiver(sites,cityWarp)
-  const width=window.innerWidth<700?2048:4096,height=width/2,canvas=()=>{const c=document.createElement('canvas');c.width=width;c.height=height;return c}
+  const width=textureSize||(window.innerWidth<700?2048:4096),height=width/2,canvas=()=>{const c=document.createElement('canvas');c.width=width;c.height=height;return c}
   const color=canvas(),detail=canvas(),relief=canvas(),ctx=color.getContext('2d'),ink=detail.getContext('2d')
   const xy=(lon,lat)=>{const [l,t]=cityWarp(lon,lat);return [(l+60)/120*width,(42-t)/84*height]}
   ctx.fillStyle='#c8d6ae';ctx.fillRect(0,0,width,height)
@@ -61,6 +61,14 @@ export function createCitySurfaces(nodes){
   // Low-contrast parcel detail can be toggled independently of the road bed.
   ink.strokeStyle='#8e9d8190';ink.lineWidth=1
   for(const b of blocks){const [x,y]=xy(b.lon,b.lat);ink.strokeRect(x-30,y-25,60,50)}
+  // Actual local surface relief: pavement joints, verge edges and roof footprints.
   const bump=relief.getContext('2d');bump.fillStyle='#808080';bump.fillRect(0,0,width,height)
+  for(const b of blocks){
+    const [x,y]=xy(b.lon,b.lat),step=Math.max(3,width/512)
+    bump.strokeStyle=b.isPark?'#7b7b7b':'#929292';bump.lineWidth=Math.max(1,width/2048)
+    for(let i=-24;i<25;i+=step){bump.beginPath();bump.moveTo(x+i,y-20);bump.lineTo(x+i,y+20);bump.stroke()}
+    ink.strokeStyle=b.isPark?'#75966140':'#7b858540';ink.lineWidth=Math.max(.5,width/4096)
+    for(let i=-24;i<25;i+=step*2){ink.beginPath();ink.moveTo(x-24,y+i);ink.lineTo(x+24,y+i);ink.stroke()}
+  }
   return {color,detail,relief,buildings,sites,riverLongitude,trees:trees.filter(t=>{const [l,p]=cityWarp(t.lon,t.lat);return Math.abs(l)<59&&Math.abs(p)<41}),cars}
 }

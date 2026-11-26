@@ -124,7 +124,7 @@ const chartOption = computed(() => {
       type: 'line', connectNulls: false, symbolSize: 10,
       data: versions.map((v) => byVersion[v.version_id] ?? null),
       label: { show: true, formatter: (p) => (p.value === null ? '' : signed(p.value)) },
-      markLine: { silent: true, symbol: 'none', data: [{ yAxis: 0 }], lineStyle: { color: '#c0c4cc' } },
+      markLine: { silent: true, symbol: 'none', data: [{ yAxis: 0 }], lineStyle: { color: '#6d83a0' } },
     }],
   }
 })

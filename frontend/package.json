@@ -10,7 +10,8 @@
     "test:dashboard": "node tests/dashboard.mjs",
     "test:replay": "node tests/clue-replay.mjs && node tests/curved-map.mjs && node tests/area-landmarks.mjs && node tests/landmark-geometry.mjs && node tests/map-navigation.mjs",
     "test:real": "node tests/real-backend.mjs",
-    "test:discovery": "node tests/discovery.mjs"
+    "test:discovery": "node tests/discovery.mjs",
+    "test:map-ui": "node tests/map-presentation.mjs"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.1",

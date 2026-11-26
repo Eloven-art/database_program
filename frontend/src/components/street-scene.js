@@ -6,31 +6,40 @@ import {GLOBE_RADIUS as R,globeLayout,globeJump,angularDistance,wheelDistance} f
 import {createCitySurfaces,CITY_BOUNDS,cityRoadLatitudes,CITY_ANGLE_SCALE,cityWarp} from './city-surfaces'
 import {createAreaLandmarks} from './area-landmark-scene'
 import {dragBindings,clampMapTarget,mapDetailLevel} from '@/utils/map-navigation'
+import {MAP_QUALITY,zoomAnchorShift} from '@/utils/map-presentation'
+import {createSceneLink,revealSceneLink} from './scene-links'
+import {daylightEnvironment} from './scene-environment'
 
-export function createStreetScene(host,layout,callbacks){
+export function createStreetScene(host,layout,callbacks,options={}){
+  const quality=MAP_QUALITY[options.quality]||MAP_QUALITY.standard,preview=!!options.preview
   const renderer=new THREE.WebGLRenderer({antialias:true})
-  renderer.setPixelRatio(Math.min(devicePixelRatio||1,1.75));renderer.setClearColor('#e0e9e6')
+  renderer.setPixelRatio(Math.min(devicePixelRatio||1,quality.pixelRatio));renderer.setClearColor('#0b1525')
   renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.1
-  renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap
+  renderer.shadowMap.enabled=quality.shadows&&!preview;renderer.shadowMap.type=THREE.PCFSoftShadowMap
   renderer.domElement.setAttribute('aria-hidden','true');host.appendChild(renderer.domElement)
-  const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(42,1,.1,1800)
+  const scene=new THREE.Scene(),environment=quality.environment&&!preview?daylightEnvironment(renderer):null
+  if(environment){scene.environment=environment.texture;scene.environmentIntensity=.38}
+  const camera=new THREE.PerspectiveCamera(42,1,.1,1800)
   camera.position.set(0,R+420,310)
   const controls=new OrbitControls(camera,renderer.domElement)
-  controls.enableDamping=true;controls.dampingFactor=.12;controls.enablePan=true;controls.screenSpacePanning=false;controls.panSpeed=.8;controls.rotateSpeed=.65
+  controls.enableDamping=true;controls.dampingFactor=.12;controls.enablePan=true;controls.screenSpacePanning=false;controls.panSpeed=.72;controls.rotateSpeed=.5
   controls.target.set(0,R*.99,0);controls.minDistance=100;controls.maxDistance=1000;controls.minPolarAngle=.35;controls.maxPolarAngle=1.35;controls.minAzimuthAngle=-1.1;controls.maxAzimuthAngle=1.1
   function setDragMode(mode){const b=dragBindings(mode);controls.mouseButtons={LEFT:THREE.MOUSE[b.left],MIDDLE:THREE.MOUSE.DOLLY,RIGHT:THREE.MOUSE[b.right]};controls.touches={ONE:THREE.TOUCH[b.touch],TWO:THREE.TOUCH.DOLLY_PAN}}
   setDragMode('pan')
   scene.add(new THREE.HemisphereLight('#edf8ff','#779b8e',1.6))
-  const sun=new THREE.DirectionalLight('#fff5dc',2.0);sun.position.set(-330,R+500,500);sun.target.position.set(0,R*.97,0);sun.castShadow=true;sun.shadow.mapSize.set(1024,1024);Object.assign(sun.shadow.camera,{left:-350,right:350,top:350,bottom:-350,near:1,far:1400});sun.shadow.bias=-.001;scene.add(sun,sun.target)
+  const sun=new THREE.DirectionalLight('#fff5dc',2.0);sun.position.set(-330,R+500,500);sun.target.position.set(0,R*.97,0);sun.castShadow=true;sun.shadow.mapSize.set(quality.shadowSize,quality.shadowSize);Object.assign(sun.shadow.camera,{left:-350,right:350,top:350,bottom:-350,near:1,far:1400});sun.shadow.bias=-.0004;sun.shadow.normalBias=.25;scene.add(sun,sun.target)
   const fill=new THREE.DirectionalLight('#9acbea',1.2);fill.position.set(180,R+180,-100);scene.add(fill)
   const nodes=globeLayout(layout.nodes),byId=new Map(nodes.map(n=>[n.area_id,n])),nodeMeshes=[]
-  const surfaces=createCitySurfaces(nodes),riverLongitude=surfaces.riverLongitude,textures=Object.fromEntries(['color','relief','detail'].map(k=>[k,new THREE.CanvasTexture(surfaces[k])]))
+  const surfaces=createCitySurfaces(nodes,{textureSize:quality.textureSize}),riverLongitude=surfaces.riverLongitude,textures=Object.fromEntries(['color','relief','detail'].map(k=>[k,new THREE.CanvasTexture(surfaces[k])]))
   textures.color.colorSpace=THREE.SRGBColorSpace;textures.detail.colorSpace=THREE.SRGBColorSpace
   Object.values(textures).forEach(t=>{t.anisotropy=Math.min(8,renderer.capabilities.getMaxAnisotropy())})
   const rad=THREE.MathUtils.degToRad
   const capGeometry=()=>new THREE.SphereGeometry(R,128,96,Math.PI/2-rad(CITY_BOUNDS.lon*CITY_ANGLE_SCALE),rad(CITY_BOUNDS.lon*2*CITY_ANGLE_SCALE),Math.PI/2-rad(CITY_BOUNDS.lat*CITY_ANGLE_SCALE),rad(CITY_BOUNDS.lat*2*CITY_ANGLE_SCALE)).rotateX(-Math.PI/2)
-  const globe=new THREE.Mesh(capGeometry(),new THREE.MeshStandardMaterial({map:textures.color,roughness:.9,metalness:0}))
+  const globe=new THREE.Mesh(capGeometry(),new THREE.MeshStandardMaterial({map:textures.color,bumpMap:textures.relief,bumpScale:.22,roughness:.92,metalness:0}))
   globe.receiveShadow=true;scene.add(globe)
+  const parcelGeometry=capGeometry().scale((R+.08)/R,(R+.08)/R,(R+.08)/R)
+  const parcelLayer=new THREE.Mesh(parcelGeometry,new THREE.MeshBasicMaterial({map:textures.detail,transparent:true,opacity:.48,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-1}))
+  scene.add(parcelLayer)
   const details=new THREE.Group();scene.add(details)
   const hitTargets=[globe]
   const rawPoint=(lon,lat,r=R)=>{const a=rad(lon*CITY_ANGLE_SCALE),b=rad(lat*CITY_ANGLE_SCALE);return new THREE.Vector3(r*Math.cos(b)*Math.sin(a),r*Math.cos(b)*Math.cos(a),-r*Math.sin(b))}
@@ -51,7 +60,7 @@ export function createStreetScene(host,layout,callbacks){
   const fc=facade.getContext('2d');fc.fillStyle='#dfdfd2';fc.fillRect(0,0,128,256)
   for(let row=0;row<9;row++)for(let col=0;col<4;col++){fc.fillStyle=(row+col)%4===0?'#9bb7bd':'#597b88';fc.fillRect(9+col*29,10+row*27,18,20);fc.strokeStyle='#b2c5c4';fc.lineWidth=1;fc.strokeRect(9+col*29,10+row*27,18,20);fc.fillStyle='#c6d9db';fc.fillRect(12+col*29,13+row*27,3,16)}
   const facadeTexture=new THREE.CanvasTexture(facade);facadeTexture.colorSpace=THREE.SRGBColorSpace
-  const wall=new THREE.MeshStandardMaterial({map:facadeTexture,roughness:.85}),roof=new THREE.MeshStandardMaterial({color:'#eef0e5',roughness:.9})
+  const wall=new THREE.MeshStandardMaterial({map:facadeTexture,roughness:.72}),roof=new THREE.MeshStandardMaterial({color:'#eef0e5',roughness:.9})
   const boxes=new THREE.InstancedMesh(new THREE.BoxGeometry(1,1,1),[wall,wall,roof,roof,wall,wall],surfaces.buildings.length)
   const roofUnits=new THREE.InstancedMesh(new THREE.BoxGeometry(1,1,1),new THREE.MeshStandardMaterial({color:'#909d9a',roughness:.85}),surfaces.buildings.length)
   const tones=['#eee6d2','#d6e2e1','#f0ddc3','#d8cab5','#e1e5d6']
@@ -71,7 +80,7 @@ export function createStreetScene(host,layout,callbacks){
     samples.forEach(([left,right],i)=>{for(const [lon,lat] of [left,right]){const p=point(lon,lat,radius);positions.push(p.x,p.y,p.z)}if(i){const a=(i-1)*2;indices.push(a,a+1,a+2,a+1,a+3,a+2)}})
     const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));geometry.setIndex(indices);geometry.computeVertexNormals();const mesh=new THREE.Mesh(geometry,material);mesh.receiveShadow=true;scene.add(mesh);return mesh
   }
-  ribbon(Array.from({length:169},(_,i)=>{const lat=-42+i*.5,lon=riverLongitude(lat);return [[lon-1.05,lat],[lon+1.05,lat]]}),new THREE.MeshStandardMaterial({color:'#7dc6d5',roughness:.32,metalness:.16,side:THREE.DoubleSide}))
+  ribbon(Array.from({length:169},(_,i)=>{const lat=-42+i*.5,lon=riverLongitude(lat);return [[lon-1.05,lat],[lon+1.05,lat]]}),new THREE.MeshStandardMaterial({color:'#66b4c7',roughness:.24,metalness:.12,envMapIntensity:.65,side:THREE.DoubleSide}))
   for(const [j,lat] of cityRoadLatitudes.entries()){
     const half=j%4===1?.62:.35,lon=riverLongitude(lat)
     ribbon(Array.from({length:9},(_,i)=>{const l=lon-1.5+i*.375;return [[l,lat-half],[l,lat+half]]}),new THREE.MeshStandardMaterial({color:'#a3acab',roughness:.8,side:THREE.DoubleSide}),R+.65)
@@ -97,19 +106,20 @@ export function createStreetScene(host,layout,callbacks){
   const tracePoints=(a,b)=>Array.from({length:73},(_,i)=>{const p=sceneJump(a,b,i/72*.76);return new THREE.Vector3(p.x,p.y,p.z)})
   for(const edge of layout.edges){
     const a=byId.get(edge.a),b=byId.get(edge.b)
-    const line=new THREE.Line(new THREE.BufferGeometry().setFromPoints(tracePoints(a,b)),new THREE.LineBasicMaterial({color:'#456a82',transparent:true,opacity:.38}))
+    const line=createSceneLink(tracePoints(a,b),{color:'#42637a',width:1.6,opacity:.42})
     line.userData={kind:'edge',id:edge.id};neighbourhood.add(line);neighbourhoodMeshes.push({edge,line});hitTargets.push(line)
   }
-  const traveller=new THREE.Mesh(new THREE.SphereGeometry(3.7,24,16),new THREE.MeshStandardMaterial({color:'#266bcb',emissive:'#102a55',emissiveIntensity:.7,roughness:.2,metalness:.1}))
+  const traveller=new THREE.Mesh(new THREE.SphereGeometry(3.7,24,16),new THREE.MeshStandardMaterial({color:'#276cce',emissive:'#12346c',emissiveIntensity:.7,roughness:.2,metalness:.1}))
   const landing=new THREE.Mesh(new THREE.RingGeometry(3.2,3.7,48),new THREE.MeshBasicMaterial({color:'#2464b5',transparent:true,side:THREE.DoubleSide}))
   const shadow=new THREE.Mesh(new THREE.PlaneGeometry(9,9),new THREE.MeshBasicMaterial({map:heatTexture,color:'#092a35',transparent:true,opacity:.6,depthWrite:false}))
   replayGroup.add(traveller,landing,shadow);replayGroup.visible=false
-  let width=1,height=1,frame=0,disposed=false,selected='',hovered=null,risk={},visibleLinks=true,replayState=null,replayEvents=null,replayLines=[]
+  let width=Math.max(1,host.clientWidth),height=Math.max(1,host.clientHeight),frame=0,disposed=false,selected='',hovered=null,risk={},visibleLinks=true,replayState=null,replayEvents=null,replayLines=[]
   let detailLevel=0
-  let interactive=false,dragging=false,distance=400,fitDistance=400,transition=null,previousTime=0
+  let interactive=false,dragging=false,distance=400,fitDistance=400,transition=null,previousTime=0,zoomAnchor=null
+  camera.aspect=width/height;camera.updateProjectionMatrix();renderer.setSize(width,height)
   const raycaster=new THREE.Raycaster(),pointer=new THREE.Vector2()
   const reduced=()=>window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  function invalidate(){if(!disposed&&!frame)frame=requestAnimationFrame(render)}
+  function invalidate(){if(!disposed&&!document.hidden&&!frame)frame=requestAnimationFrame(render)}
   function render(time){
     frame=0;if(disposed)return
     const dt=Math.min(.05,(time-(previousTime||time))/1000);previousTime=time
@@ -121,30 +131,42 @@ export function createStreetScene(host,layout,callbacks){
       if(t>=1||reduced())transition=null;else moving=true
     }
     if(!dragging&&!transition&&Math.abs(camera.position.distanceTo(controls.target)-distance)>.015){const length=camera.position.distanceTo(controls.target);camera.position.sub(controls.target).setLength(THREE.MathUtils.lerp(length,distance,reduced()?1:1-Math.exp(-12*(dt||.016)))).add(controls.target);moving=true}
+    camera.updateMatrixWorld()
+    if(zoomAnchor){
+      raycaster.setFromCamera(zoomAnchor.pointer,camera)
+      const next=raycaster.intersectObject(globe,false)[0]?.point
+      const delta=zoomAnchorShift(zoomAnchor.point,next,12)
+      controls.target.add(new THREE.Vector3(delta.x,delta.y,delta.z));camera.position.add(new THREE.Vector3(delta.x,delta.y,delta.z))
+      if(Math.abs(camera.position.distanceTo(controls.target)-distance)<=.015)zoomAnchor=null
+    }
     if(controls.update())moving=true
     constrainTarget()
-    const nextDetail=mapDetailLevel(camera.position.distanceTo(controls.target),detailLevel)
+    const nextDetail=preview?0:Math.min(quality.detail,mapDetailLevel(camera.position.distanceTo(controls.target),detailLevel))
     if(nextDetail!==detailLevel){detailLevel=nextDetail;landmarks.setDetailLevel(detailLevel)}
+    parcelLayer.visible=detailLevel>=1&&!preview
     renderer.render(scene,camera)
-    callbacks.onProject(nodes.map(n=>{const v=normal(n).multiplyScalar(R+2),visible=normal(n).dot(camera.position)>R;v.project(camera);return {...n,left:(v.x+1)*width/2,top:(1-v.y)*height/2,visible:visible&&v.z>-1&&v.z<1}}))
+    callbacks.onDetail?.(detailLevel)
+    callbacks.onProject?.(nodes.map(n=>{const v=normal(n).multiplyScalar(R+2),visible=normal(n).dot(camera.position)>R;v.project(camera);return {...n,left:(v.x+1)*width/2,top:(1-v.y)*height/2,visible:visible&&v.z>-1&&v.z<1}}))
     if(moving)invalidate();else previousTime=0
   }
   function constrainTarget(){const next=clampMapTarget(controls.target,R),delta=new THREE.Vector3(next.x,next.y,next.z).sub(controls.target);if(delta.lengthSq()>.00001){controls.target.add(delta);camera.position.add(delta)}}
   function setInteractive(value){interactive=value;controls.enabled=value;renderer.domElement.style.touchAction=value?'none':'pan-y';renderer.domElement.style.cursor=value?'grab':'default';if(!value){dragging=false;distance=camera.position.distanceTo(controls.target)}invalidate()}
   function fit(resize=false){
     const previous=fitDistance
-    fitDistance=Math.max(230/(Math.tan(rad(camera.fov/2))*camera.aspect),155/Math.tan(rad(camera.fov/2)))*1.12
+    // Include all regional landing plazas with room for the UI labels.
+    const extentX=Math.max(180,...nodes.map(n=>Math.abs(n.x)+22)),extentZ=Math.max(125,...nodes.map(n=>Math.abs(n.z)+22))
+    fitDistance=Math.max(extentX/(Math.tan(rad(camera.fov/2))*camera.aspect),extentZ/Math.tan(rad(camera.fov/2)))*1.12
     fitDistance=Math.min(950,fitDistance)
     distance=resize?THREE.MathUtils.clamp(distance/previous*fitDistance,100,1000):fitDistance
     invalidate()
   }
-  function moveCamera(target,nextDistance){const dir=new THREE.Vector3(0,1.35,1).normalize();distance=THREE.MathUtils.clamp(nextDistance,100,1000);transition={from:camera.position.clone(),to:target.clone().addScaledVector(dir,distance),fromTarget:controls.target.clone(),toTarget:target.clone(),start:performance.now()};invalidate()}
+  function moveCamera(target,nextDistance){zoomAnchor=null;const dir=new THREE.Vector3(0,1.35,1).normalize();distance=THREE.MathUtils.clamp(nextDistance,100,1000);transition={from:camera.position.clone(),to:target.clone().addScaledVector(dir,distance),fromTarget:controls.target.clone(),toTarget:target.clone(),start:performance.now()};invalidate()}
   function reset(){fit();moveCamera(new THREE.Vector3(0,R*.99,0),fitDistance)}
   function face(direction,nextDistance){moveCamera(direction.clone().multiplyScalar(R*.98),nextDistance)}
   function style(){
     const edge=hovered?.kind==='edge'?neighbourhoodMeshes.find(e=>e.edge.id===hovered.id)?.edge:null
     for(const {node,ball,ring,heat} of nodeMeshes){const active=node.area_id===(hovered?.kind==='node'?hovered.id:selected)||[edge?.a,edge?.b].includes(node.area_id);ball.material.color.set(riskColor(risk[node.area_id]?.total_score));ball.scale.setScalar(active?1.2:1);ring.visible=active;heat.material.color.copy(ball.material.color)}
-    for(const {line} of neighbourhoodMeshes){line.material.color.set(line.userData.id===hovered?.id?'#215fae':'#456a82');line.material.opacity=line.userData.id===hovered?.id?.toString()?1:.5}
+    for(const {line} of neighbourhoodMeshes){line.material.color.set(line.userData.id===hovered?.id?'#215fae':'#456a82');line.material.opacity=line.userData.id===hovered?.id?1:.42}
     if(!replayState)landmarks.highlight(hovered?.kind==='node'?hovered.id:selected)
     neighbourhood.visible=visibleLinks&&!replayState;invalidate()
   }
@@ -155,10 +177,9 @@ export function createStreetScene(host,layout,callbacks){
       for(const {line} of replayLines){replayGroup.remove(line);line.geometry.dispose();line.material.dispose()}
       replayEvents=state.events
       replayLines=replaySegments(state.events,state.chain).flatMap(s=>{const a=byId.get(s.from),b=byId.get(s.to);if(!a||!b)return []
-        const material=s.related?new THREE.LineBasicMaterial({color:'#2868bb',transparent:true,opacity:.75}):new THREE.LineDashedMaterial({color:'#2459a1',dashSize:1.5,gapSize:1.2,transparent:true,opacity:.5})
-        const line=new THREE.Line(new THREE.BufferGeometry().setFromPoints(tracePoints(a,b)),material);line.computeLineDistances();replayGroup.add(line);return [{...s,line}]})
+        const line=createSceneLink(tracePoints(a,b),{color:s.related?'#215cc5':'#365d97',width:s.related?3.3:2.6,opacity:.8,dashed:!s.related});replayGroup.add(line);return [{...s,line}]})
     }
-    for(const {index,line} of replayLines){line.visible=state.showLinks&&index<=state.index;line.material.opacity=index===state.index?1:.62;line.geometry.setDrawRange(0,index===state.index?Math.ceil(Math.min(1,state.progress/.76)*73):73)}
+    for(const {index,line} of replayLines){line.visible=state.showLinks&&index<=state.index;line.material.opacity=index===state.index?1:.62;revealSceneLink(line,index===state.index?state.progress/.76:1)}
     const to=byId.get(state.events[state.index]?.area_id),from=byId.get(state.events[state.index-1]?.area_id)||to
     landmarks.highlight(to?.area_id||null)
     traveller.visible=landing.visible=shadow.visible=!!to
@@ -172,8 +193,8 @@ export function createStreetScene(host,layout,callbacks){
   const onMove=e=>{if(down){if(Math.hypot(e.clientX-down.x,e.clientY-down.y)>5)moved=true;return}hover(hit(e),e)}
   const onUp=e=>{if(down&&!moved&&activePointers.size===1&&e.type!=='pointercancel'){const h=hit(e);if(h?.kind==='node')callbacks.onSelect(h.id)}activePointers.delete(e.pointerId);if(!activePointers.size)down=null}
   const onLeave=e=>hover(null,e)
-  const onWheel=e=>{if(!interactive)return;e.preventDefault();e.stopImmediatePropagation();callbacks.onInteract?.();transition=null;distance=wheelDistance(distance,e.deltaY*(e.deltaMode===1?16:e.deltaMode===2?height:1),100,1000);invalidate()}
-  const onStart=()=>{dragging=true;transition=null;callbacks.onHover(null);callbacks.onInteract?.()}
+  const onWheel=e=>{if(!interactive)return;e.preventDefault();e.stopImmediatePropagation();callbacks.onInteract?.();transition=null;const rect=renderer.domElement.getBoundingClientRect();pointer.set((e.clientX-rect.left)/rect.width*2-1,-(e.clientY-rect.top)/rect.height*2+1);camera.updateMatrixWorld();raycaster.setFromCamera(pointer,camera);const ground=raycaster.intersectObject(globe,false)[0]?.point;zoomAnchor=ground?{point:ground.clone(),pointer:pointer.clone()}:null;distance=wheelDistance(distance,e.deltaY*(e.deltaMode===1?16:e.deltaMode===2?height:1),100,1000);invalidate()}
+  const onStart=()=>{dragging=true;transition=null;zoomAnchor=null;callbacks.onHover(null);callbacks.onInteract?.()}
   const onEnd=()=>{dragging=false;distance=camera.position.distanceTo(controls.target);invalidate()}
   const onChange=()=>{constrainTarget();if(dragging)distance=camera.position.distanceTo(controls.target);invalidate()}
   const onLost=e=>{e.preventDefault();callbacks.onFailure()}
@@ -181,16 +202,20 @@ export function createStreetScene(host,layout,callbacks){
   renderer.domElement.addEventListener('pointerdown',onDown);renderer.domElement.addEventListener('pointermove',onMove);renderer.domElement.addEventListener('pointerleave',onLeave);renderer.domElement.addEventListener('webglcontextlost',onLost)
   window.addEventListener('pointerup',onUp);window.addEventListener('pointercancel',onUp)
   controls.addEventListener('start',onStart);controls.addEventListener('end',onEnd);controls.addEventListener('change',onChange)
-  const observer=new ResizeObserver(()=>{width=Math.max(1,host.clientWidth);height=Math.max(1,host.clientHeight);renderer.setSize(width,height);camera.aspect=width/height;camera.updateProjectionMatrix();fit(true)})
+  const onVisibility=()=>{if(document.hidden){cancelAnimationFrame(frame);frame=0;previousTime=0}else invalidate()}
+  document.addEventListener('visibilitychange',onVisibility)
+  const observer=new ResizeObserver(()=>{width=Math.max(1,host.clientWidth);height=Math.max(1,host.clientHeight);renderer.setSize(width,height);for(const {line} of [...neighbourhoodMeshes,...replayLines])line.material.resolution.set(width,height);camera.aspect=width/height;camera.updateProjectionMatrix();fit(true)})
   observer.observe(host);controls.update();setInteractive(false);fit();camera.position.sub(controls.target).setLength(distance).add(controls.target)
   return {
     replay,setInteractive,setDragMode,reset,
+    captureView(){return {position:camera.position.toArray(),target:controls.target.toArray(),distance}},
+    restoreView(view){camera.position.fromArray(view.position);controls.target.fromArray(view.target);distance=view.distance;controls.update();invalidate()},
     update(next){risk=next.risk;selected=next.selected;visibleLinks=next.links;details.visible=next.buildings;style()},
-    zoom(factor){transition=null;callbacks.onInteract?.();distance=THREE.MathUtils.clamp(distance/factor,100,1000);invalidate()},
-    pan(x,z){const delta=new THREE.Vector3(x,0,z);controls.target.add(delta);camera.position.add(delta);transition=null;constrainTarget();controls.update();invalidate()},
+    zoom(factor){transition=null;zoomAnchor=null;callbacks.onInteract?.();distance=THREE.MathUtils.clamp(distance/factor,100,1000);invalidate()},
+    pan(x,z){zoomAnchor=null;const delta=new THREE.Vector3(x,0,z);controls.target.add(delta);camera.position.add(delta);transition=null;constrainTarget();controls.update();invalidate()},
     focus(id){const n=byId.get(id);if(n)face(normal(n),Math.min(fitDistance,230))},
     focusChain(){const chainNodes=[...new Set(replayState?.events.map(e=>e.area_id))].map(id=>byId.get(id)).filter(Boolean);if(!chainNodes.length){reset();return}const center=chainNodes.reduce((v,n)=>v.add(normal(n)),new THREE.Vector3()).normalize();const spread=Math.max(...chainNodes.map(n=>angularDistance(center,n)));face(center,Math.max(170,fitDistance*Math.min(1,.42+spread/.95)))},
     hover(id,event){hover(id?{kind:'node',id}:null,event)},
-    dispose(){disposed=true;cancelAnimationFrame(frame);observer.disconnect();controls.dispose();window.removeEventListener('pointerup',onUp);window.removeEventListener('pointercancel',onUp);renderer.domElement.removeEventListener('wheel',onWheel,true);renderer.domElement.removeEventListener('pointerdown',onDown);renderer.domElement.removeEventListener('pointermove',onMove);renderer.domElement.removeEventListener('pointerleave',onLeave);renderer.domElement.removeEventListener('webglcontextlost',onLost);const geometries=new Set(),materials=new Set(),materialTextures=new Set();scene.traverse(o=>{if(o.isInstancedMesh)o.dispose();if(o.geometry)geometries.add(o.geometry);if(o.material)(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>materials.add(m))});geometries.forEach(g=>g.dispose());materials.forEach(m=>{if(m.map)materialTextures.add(m.map);m.dispose()});materialTextures.forEach(t=>t.dispose());facadeTexture.dispose();Object.values(textures).forEach(t=>t.dispose());heatTexture.dispose();renderer.dispose();renderer.domElement.remove()}
+    dispose(){disposed=true;cancelAnimationFrame(frame);observer.disconnect();controls.dispose();document.removeEventListener('visibilitychange',onVisibility);environment?.dispose();window.removeEventListener('pointerup',onUp);window.removeEventListener('pointercancel',onUp);renderer.domElement.removeEventListener('wheel',onWheel,true);renderer.domElement.removeEventListener('pointerdown',onDown);renderer.domElement.removeEventListener('pointermove',onMove);renderer.domElement.removeEventListener('pointerleave',onLeave);renderer.domElement.removeEventListener('webglcontextlost',onLost);const geometries=new Set(),materials=new Set(),materialTextures=new Set();scene.traverse(o=>{if(o.isInstancedMesh)o.dispose();if(o.geometry)geometries.add(o.geometry);if(o.material)(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>materials.add(m))});geometries.forEach(g=>g.dispose());materials.forEach(m=>{if(m.map)materialTextures.add(m.map);m.dispose()});materialTextures.forEach(t=>t.dispose());facadeTexture.dispose();Object.values(textures).forEach(t=>t.dispose());heatTexture.dispose();renderer.dispose();renderer.domElement.remove()}
   }
 }

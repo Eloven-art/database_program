@@ -44,9 +44,9 @@ const option = computed(() => ({
     { value: 2, label: thresholds.value ? `中 ${thresholds.value.low}–<${thresholds.value.high}` : '中风险', color: chartPalette.mid },
     { value: 3, label: thresholds.value ? `高 ≥${thresholds.value.high}` : '高风险', color: chartPalette.high },
   ] },
-  series: [{ type: 'heatmap', data: cells.value.map((r) => ({ value: [nightHours.indexOf(r.hour_slot), areas.value.findIndex(([id]) => id === r.area_id), r.risk_level], row: r, label: {color: r.risk_level===3 ? '#fff' : chartPalette.ink} })),
-    label: { show: true, formatter: (p) => fixed(p.data.row.total_score, 2), color: chartPalette.ink, fontSize:11 },
-    itemStyle: { borderColor: '#fff', borderWidth: 2 } }],
+  series: [{ type: 'heatmap', data: cells.value.map((r) => ({ value: [nightHours.indexOf(r.hour_slot), areas.value.findIndex(([id]) => id === r.area_id), r.risk_level], row: r, label: {color: r.risk_level===3 ? '#fff' : chartPalette.cellInk} })),
+    label: { show: true, formatter: (p) => fixed(p.data.row.total_score, 2), color: chartPalette.cellInk, fontSize:11 },
+    itemStyle: { borderColor: '#121d2d', borderWidth: 2 } }],
 }))
 function openScore(p) { if (p.data?.row) router.push({ name: 'risk-detail', params: { scoreId: p.data.row.score_id } }) }
 </script>
